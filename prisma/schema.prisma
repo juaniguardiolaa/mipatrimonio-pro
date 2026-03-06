@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String            @id @default(cuid())
+  email           String            @unique
+  password        String
+  createdAt       DateTime          @default(now())
+  portfolios      Portfolio[]
+  accounts        Account[]
+  assets          Asset[]
+  liabilities     Liability[]
+  netWorthHistory NetWorthHistory[]
+  subscriptions   Subscription[]
+  brokerConnections BrokerConnection[]
+}
+
+
+model Portfolio {
+  id          String      @id @default(cuid())
+  userId      String
+  name        String
+  createdAt   DateTime    @default(now())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts    Account[]
+  assets      Asset[]
+  liabilities Liability[]
+
+  @@index([userId])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model Account {
+  id          String    @id @default(cuid())
+  userId      String
+  portfolioId String
+  name        String
+  type        String
+  currency    String
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  assets      Asset[]
+
+  @@index([userId])
+  @@index([portfolioId])
+  @@index([userId, portfolioId])
+}
+
+model AssetCategory {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  type   String
+  assets Asset[]
+}
+
+model LiabilityCategory {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  liabilities Liability[]
+}
+
+model Currency {
+  code        String      @id
+  name        String
+  symbol      String
+  assets      Asset[]
+  liabilities Liability[]
+  accounts    Account[]
+}
+
+model Asset {
+  id              String        @id @default(cuid())
+  userId          String
+  portfolioId     String
+  accountId       String
+  categoryId      String
+  currency        String
+  name            String
+  value           Decimal       @db.Decimal(14, 2)
+  createdAt       DateTime      @default(now())
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolio       Portfolio     @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  account         Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category        AssetCategory @relation(fields: [categoryId], references: [id])
+  currencyRef     Currency      @relation(fields: [currency], references: [code])
+
+  @@index([userId])
+  @@index([portfolioId])
+  @@index([accountId])
+  @@index([categoryId])
+  @@index([currency])
+}
+
+model Liability {
+  id              String            @id @default(cuid())
+  userId          String
+  portfolioId     String
+  categoryId      String
+  currency        String
+  name            String
+  amount          Decimal           @db.Decimal(14, 2)
+  createdAt       DateTime          @default(now())
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolio       Portfolio         @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  category        LiabilityCategory @relation(fields: [categoryId], references: [id])
+  currencyRef     Currency          @relation(fields: [currency], references: [code])
+
+  @@index([userId])
+  @@index([portfolioId])
+  @@index([categoryId])
+  @@index([currency])
+}
+
+model NetWorthHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  portfolioId String?
+  accountId   String?
+  netWorth    Decimal  @db.Decimal(14, 2)
+  date        DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([portfolioId])
+  @@index([accountId])
+  @@index([userId, date(sort: Desc)])
+}
+
+
+model BrokerConnection {
+  id        String   @id @default(cuid())
+  userId    String
+  broker    String
+  apiKey    String
+  apiSecret String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@unique([userId, broker])
+}
+model Subscription {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  plan                 String   @default("free")
+  status               String   @default("inactive")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
