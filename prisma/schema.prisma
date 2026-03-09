@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String      @id @default(cuid())
+  email      String      @unique
+  portfolios Portfolio[]
+}
+
+model Portfolio {
+  id              String   @id @default(cuid())
+  name            String
+  userId          String
+  totalMarketValue Float    @default(0)
+  totalCostBasis  Float    @default(0)
+  netWorth        Float    @default(0)
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id])
+  assets          Asset[]
+}
+
+model Asset {
+  id              String   @id @default(cuid())
+  portfolioId     String
+  symbol          String
+  assetType       String
+  quantity        Float
+  purchasePrice   Float
+  marketPrice     Float?
+  marketValue     Float?
+  lastPriceUpdate DateTime?
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id])
+}
+
+model PriceSnapshot {
+  id        String   @id @default(cuid())
+  symbol    String
+  price     Float
+  currency  String
+  source    String
+  timestamp DateTime @default(now())
+
+  @@index([symbol, timestamp(sort: Desc)])
+}
