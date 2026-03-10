@@ -7,11 +7,16 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+ codex/redisenar-el-frontend-de-la-aplicacion-qcao1z
+    "prisma:generate": "prisma generate",
+    "db:push": "prisma db push"
+
  codex/redisenar-el-frontend-de-la-aplicacion-o5hjmx
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push"
 
     "prisma:generate": "prisma generate"
+ main
  main
   },
   "dependencies": {
