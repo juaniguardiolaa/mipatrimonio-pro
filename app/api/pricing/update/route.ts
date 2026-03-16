@@ -1,9 +1,25 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { recalculatePortfolioValue, updateAssetMarketValue } from '@/lib/services/pricing.service';
 import { refreshFxRates } from '@/lib/pricing/fx.service';
 
-export async function GET() {
+const RATE_LIMIT_MS = 60_000;
+let lastUpdateExecution = 0;
+let lastCachedResponse: Record<string, unknown> | null = null;
+
+export async function GET(request: NextRequest) {
+  const isCronJob = request.headers.get('x-cron-job') === 'true';
+  const now = Date.now();
+
+  if (!isCronJob && now - lastUpdateExecution < RATE_LIMIT_MS && lastCachedResponse) {
+    return NextResponse.json({
+      ...lastCachedResponse,
+      cached: true,
+      cacheAgeMs: now - lastUpdateExecution,
+      timestamp: new Date(),
+    });
+  }
+
   try {
     const fxRates = await refreshFxRates().catch(() => []);
 
@@ -38,13 +54,18 @@ export async function GET() {
 
     await Promise.all(Array.from(updatedPortfolios).map((portfolioId) => recalculatePortfolioValue(portfolioId)));
 
-    return NextResponse.json({
+    const responseBody = {
       ok: true,
       updatedAssets,
       updatedPortfolios: updatedPortfolios.size,
       fxUpdated: fxRates.length,
-      timestamp: new Date(),
-    });
+      cached: false,
+    };
+
+    lastUpdateExecution = now;
+    lastCachedResponse = responseBody;
+
+    return NextResponse.json({ ...responseBody, timestamp: new Date() });
   } catch (error) {
     return NextResponse.json({ ok: false, error: 'pricing_update_failed', detail: error instanceof Error ? error.message : 'unknown' }, { status: 500 });
   }

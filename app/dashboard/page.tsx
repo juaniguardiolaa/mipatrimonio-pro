@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChartContainer } from '@/components/ui/ChartContainer';
 import { DataTable } from '@/components/ui/DataTable';
 import { KpiCard } from '@/components/ui/KpiCard';
@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { Landmark, TrendingUp, Wallet, WalletCards } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
+import { AutoPricingUpdater } from '@/components/pricing/AutoPricingUpdater';
 
 type Position = {
   id: string;
@@ -37,18 +38,19 @@ export default function DashboardPage() {
   const [netWorthUsd, setNetWorthUsd] = useState(0);
   const [baseCurrency, setBaseCurrency] = useState<'ARS' | 'USD'>('ARS');
 
-  useEffect(() => {
-    fetch('/api/pricing/update', { cache: 'no-store' }).catch(() => undefined);
-    fetch('/api/pricing/portfolio/demo', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!data) return;
-        setPositions(data.positions || []);
-        setNetWorthArs(data.netWorthArs || 0);
-        setNetWorthUsd(data.netWorthUsd || 0);
-      })
-      .catch(() => undefined);
+  const fetchPortfolioData = useCallback(async () => {
+    const res = await fetch('/api/pricing/portfolio/demo', { cache: 'no-store' });
+    if (!res.ok) return;
+
+    const data = await res.json();
+    setPositions(data.positions || []);
+    setNetWorthArs(data.netWorthArs || 0);
+    setNetWorthUsd(data.netWorthUsd || 0);
   }, []);
+
+  useEffect(() => {
+    fetchPortfolioData().catch(() => undefined);
+  }, [fetchPortfolioData]);
 
   const totals = useMemo(() => {
     return positions.reduce((acc, p) => {
@@ -80,7 +82,7 @@ export default function DashboardPage() {
       <SectionHeader
         title="Dashboard Argentina"
         subtitle="Patrimonio real en ARS y USD con soporte CEDEAR/BONOS/FX"
-        actions={<Select value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value as 'ARS' | 'USD')}><option value="ARS">ARS</option><option value="USD">USD</option></Select>}
+        actions={<div className="flex items-center gap-2"><AutoPricingUpdater onUpdated={fetchPortfolioData} /><Select value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value as 'ARS' | 'USD')}><option value="ARS">ARS</option><option value="USD">USD</option></Select></div>}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
