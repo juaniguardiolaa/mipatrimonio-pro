@@ -7,35 +7,56 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AssetType {
+  CRYPTO
+  STOCK
+  CEDEAR
+  BOND
+  ETF
+  CASH
+}
+
 model User {
-  id         String      @id @default(cuid())
-  email      String      @unique
-  portfolios Portfolio[]
+  id              String           @id @default(cuid())
+  email           String           @unique
+  portfolios      Portfolio[]
+  netWorthHistory NetWorthHistory[]
 }
 
 model Portfolio {
-  id              String   @id @default(cuid())
-  name            String
-  userId          String
-  totalMarketValue Float    @default(0)
-  totalCostBasis  Float    @default(0)
-  netWorth        Float    @default(0)
-  updatedAt       DateTime @updatedAt
-  user            User     @relation(fields: [userId], references: [id])
-  assets          Asset[]
+  id                String   @id @default(cuid())
+  name              String
+  userId            String
+  totalMarketValue  Float    @default(0)
+  totalCostBasis    Float    @default(0)
+  netWorth          Float    @default(0)
+  netWorthUsd       Float    @default(0)
+  baseCurrency      String   @default("ARS")
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id])
+  assets            Asset[]
 }
 
 model Asset {
-  id              String   @id @default(cuid())
-  portfolioId     String
-  symbol          String
-  assetType       String
-  quantity        Float
-  purchasePrice   Float
-  marketPrice     Float?
-  marketValue     Float?
-  lastPriceUpdate DateTime?
-  portfolio       Portfolio @relation(fields: [portfolioId], references: [id])
+  id                String    @id @default(cuid())
+  portfolioId       String
+  symbol            String
+  ticker            String?
+  exchange          String?
+  assetType         AssetType @default(STOCK)
+  quantity          Float
+  purchasePrice     Float
+  currency          String    @default("ARS")
+  cedearRatio       Float?
+  marketPrice       Float?
+  marketPriceUsd    Float?
+  marketValue       Float?
+  marketValueUsd    Float?
+  lastPriceUpdate   DateTime?
+  portfolio         Portfolio @relation(fields: [portfolioId], references: [id])
+
+  @@index([portfolioId])
+  @@index([symbol])
 }
 
 model PriceSnapshot {
@@ -47,4 +68,25 @@ model PriceSnapshot {
   timestamp DateTime @default(now())
 
   @@index([symbol, timestamp(sort: Desc)])
+}
+
+model FxRate {
+  id        String   @id @default(cuid())
+  symbol    String
+  rate      Float
+  source    String
+  timestamp DateTime @default(now())
+
+  @@index([symbol, timestamp(sort: Desc)])
+}
+
+model NetWorthHistory {
+  id          String   @id @default(cuid())
+  userId       String
+  netWorthArs  Float
+  netWorthUsd  Float
+  timestamp    DateTime @default(now())
+  user         User    @relation(fields: [userId], references: [id])
+
+  @@index([userId, timestamp(sort: Desc)])
 }

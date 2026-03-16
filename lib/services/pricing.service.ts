@@ -2,6 +2,8 @@ import { Asset, PriceSnapshot } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getBinancePrice } from '@/lib/integrations/binance-price.service';
 import { getIolPrice } from '@/lib/integrations/iol-price.service';
+import { getFxRate } from '@/lib/pricing/fx.service';
+import { valuateAsset } from './valuation.service';
 
 type SupportedSource = 'BINANCE' | 'IOL';
 
@@ -43,7 +45,7 @@ export async function getCurrentPrice(symbol: string, assetType = 'STOCK'): Prom
   if (source === 'BINANCE') {
     const cryptoQuote = await getBinancePrice(symbol);
     if (cryptoQuote) {
-      quote = { symbol: cryptoQuote.symbol, price: cryptoQuote.price, currency: 'USDT', source, timestamp: cryptoQuote.timestamp };
+      quote = { symbol: cryptoQuote.symbol, price: cryptoQuote.price, currency: 'USD', source, timestamp: cryptoQuote.timestamp };
     }
   } else {
     const equityQuote = await getIolPrice(symbol);
@@ -71,17 +73,27 @@ export async function updateAssetMarketValue(assetId: string) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
   if (!asset) return null;
 
-  const price = await getCurrentPrice(asset.symbol, asset.assetType);
-  if (!price) return null;
+  const valuation = await valuateAsset(asset);
+  if (!valuation) return null;
 
-  const marketValue = asset.quantity * price.price;
+  await prisma.priceSnapshot.create({
+    data: {
+      symbol: asset.symbol.toUpperCase(),
+      price: valuation.marketPrice,
+      currency: 'ARS',
+      source: valuation.source,
+      timestamp: valuation.timestamp,
+    },
+  });
 
   return prisma.asset.update({
     where: { id: asset.id },
     data: {
-      marketPrice: price.price,
-      marketValue,
-      lastPriceUpdate: price.timestamp,
+      marketPrice: valuation.marketPrice,
+      marketPriceUsd: valuation.marketPriceUsd,
+      marketValue: valuation.marketValue,
+      marketValueUsd: valuation.marketValueUsd,
+      lastPriceUpdate: valuation.timestamp,
     },
   });
 }
@@ -92,12 +104,14 @@ export async function recalculatePortfolioValue(portfolioId: string) {
   const totals = assets.reduce(
     (acc, asset) => {
       const marketValue = asset.marketValue || 0;
+      const marketValueUsd = asset.marketValueUsd || 0;
       const costBasis = asset.quantity * asset.purchasePrice;
       acc.marketValue += marketValue;
+      acc.marketValueUsd += marketValueUsd;
       acc.costBasis += costBasis;
       return acc;
     },
-    { marketValue: 0, costBasis: 0 },
+    { marketValue: 0, marketValueUsd: 0, costBasis: 0 },
   );
 
   return prisma.portfolio.update({
@@ -106,21 +120,50 @@ export async function recalculatePortfolioValue(portfolioId: string) {
       totalMarketValue: totals.marketValue,
       totalCostBasis: totals.costBasis,
       netWorth: totals.marketValue,
+      netWorthUsd: totals.marketValueUsd,
     },
   });
 }
 
 export async function recalculateUserNetWorth(userId: string) {
   const portfolios = await prisma.portfolio.findMany({ where: { userId } });
-  return portfolios.reduce((sum, item) => sum + item.netWorth, 0);
+  const netWorthArs = portfolios.reduce((sum, item) => sum + item.netWorth, 0);
+  const netWorthUsd = portfolios.reduce((sum, item) => sum + (item.netWorthUsd || 0), 0);
+
+  await prisma.netWorthHistory.create({
+    data: {
+      userId,
+      netWorthArs,
+      netWorthUsd,
+      timestamp: new Date(),
+    },
+  });
+
+  return { netWorthArs, netWorthUsd };
 }
 
-export function computePositionMetrics(asset: Pick<Asset, 'quantity' | 'purchasePrice' | 'marketPrice'>) {
+export async function getNetWorthARS(userId: string) {
+  const totals = await recalculateUserNetWorth(userId);
+  return totals.netWorthArs;
+}
+
+export async function getNetWorthUSD(userId: string) {
+  const totals = await recalculateUserNetWorth(userId);
+  if (totals.netWorthUsd > 0) return totals.netWorthUsd;
+
+  const ccl = await getFxRate('USD_ARS_CCL');
+  if (!ccl || ccl <= 0) return 0;
+  return totals.netWorthArs / ccl;
+}
+
+export function computePositionMetrics(asset: Pick<Asset, 'quantity' | 'purchasePrice' | 'marketPrice' | 'marketPriceUsd'>) {
   const currentPrice = asset.marketPrice || 0;
+  const currentPriceUsd = asset.marketPriceUsd || 0;
   const costBasis = asset.quantity * asset.purchasePrice;
   const marketValue = asset.quantity * currentPrice;
+  const marketValueUsd = asset.quantity * currentPriceUsd;
   const profitLoss = marketValue - costBasis;
   const roiPercent = costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
 
-  return { costBasis, marketValue, profitLoss, roiPercent, currentPrice };
+  return { costBasis, marketValue, marketValueUsd, profitLoss, roiPercent, currentPrice, currentPriceUsd };
 }
