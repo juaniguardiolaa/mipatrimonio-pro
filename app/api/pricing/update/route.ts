@@ -1,72 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { recalculatePortfolioValue, updateAssetMarketValue } from '@/lib/services/pricing.service';
-import { refreshFxRates } from '@/lib/pricing/fx.service';
+import { executePricingUpdate } from '@/lib/services/pricing.service';
 
 const RATE_LIMIT_MS = 60_000;
+const TIMEOUT_MS = 25_000;
 let lastUpdateExecution = 0;
-let lastCachedResponse: Record<string, unknown> | null = null;
+let lastRateLimitResponse: Record<string, unknown> | null = null;
+
+function isAuthorized(request: NextRequest) {
+  if (process.env.NODE_ENV === 'development') return true;
+
+  const expected = process.env.CRON_SECRET;
+  const auth = request.headers.get('authorization') || '';
+
+  if (!expected) return false;
+  return auth === `Bearer ${expected}`;
+}
 
 export async function GET(request: NextRequest) {
-  const isCronJob = request.headers.get('x-cron-job') === 'true';
-  const now = Date.now();
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+  }
 
-  if (!isCronJob && now - lastUpdateExecution < RATE_LIMIT_MS && lastCachedResponse) {
-    return NextResponse.json({
-      ...lastCachedResponse,
-      cached: true,
-      cacheAgeMs: now - lastUpdateExecution,
-      timestamp: new Date(),
-    });
+  const now = Date.now();
+  if (now - lastUpdateExecution < RATE_LIMIT_MS && lastRateLimitResponse) {
+    return NextResponse.json(lastRateLimitResponse);
+  }
+
+  if (now - lastUpdateExecution < RATE_LIMIT_MS) {
+    return NextResponse.json({ message: 'Pricing update skipped (too soon)' });
   }
 
   try {
-    const fxRates = await refreshFxRates().catch(() => []);
-
-    const assets = await prisma.asset.findMany({
-      select: { id: true, symbol: true, assetType: true, portfolioId: true },
+    const timeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('pricing update timeout')), TIMEOUT_MS);
     });
 
-    const grouped = new Map<string, { assetIds: string[]; portfolioIds: Set<string> }>();
-
-    for (const asset of assets) {
-      const key = `${asset.symbol.toUpperCase()}-${asset.assetType.toUpperCase()}`;
-      const found = grouped.get(key);
-      if (found) {
-        found.assetIds.push(asset.id);
-        found.portfolioIds.add(asset.portfolioId);
-      } else {
-        grouped.set(key, {
-          assetIds: [asset.id],
-          portfolioIds: new Set([asset.portfolioId]),
-        });
-      }
-    }
-
-    const updatedPortfolios = new Set<string>();
-    let updatedAssets = 0;
-
-    for (const group of grouped.values()) {
-      await Promise.all(group.assetIds.map((assetId) => updateAssetMarketValue(assetId)));
-      updatedAssets += group.assetIds.length;
-      group.portfolioIds.forEach((portfolioId) => updatedPortfolios.add(portfolioId));
-    }
-
-    await Promise.all(Array.from(updatedPortfolios).map((portfolioId) => recalculatePortfolioValue(portfolioId)));
-
-    const responseBody = {
-      ok: true,
-      updatedAssets,
-      updatedPortfolios: updatedPortfolios.size,
-      fxUpdated: fxRates.length,
-      cached: false,
-    };
-
+    const result = await Promise.race([executePricingUpdate(), timeout]);
     lastUpdateExecution = now;
-    lastCachedResponse = responseBody;
-
-    return NextResponse.json({ ...responseBody, timestamp: new Date() });
+    lastRateLimitResponse = result;
+    return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ ok: false, error: 'pricing_update_failed', detail: error instanceof Error ? error.message : 'unknown' }, { status: 500 });
+    return NextResponse.json({ success: false, message: error instanceof Error ? error.message : 'unknown error' }, { status: 500 });
   }
 }

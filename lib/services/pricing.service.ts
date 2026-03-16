@@ -2,7 +2,7 @@ import { Asset, PriceSnapshot } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getBinancePrice } from '@/lib/integrations/binance-price.service';
 import { getIolPrice } from '@/lib/integrations/iol-price.service';
-import { getFxRate } from '@/lib/pricing/fx.service';
+import { getFxRate, refreshFxRates } from '@/lib/pricing/fx.service';
 import { valuateAsset } from './valuation.service';
 
 type SupportedSource = 'BINANCE' | 'IOL';
@@ -13,6 +13,14 @@ type CurrentPrice = {
   currency: string;
   source: SupportedSource;
   timestamp: Date;
+};
+
+export type PricingExecutionResult = {
+  success: true;
+  assetsUpdated: number;
+  portfoliosUpdated: number;
+  fxUpdated: boolean;
+  executionTimeMs: number;
 };
 
 function resolveSource(assetType: string): SupportedSource {
@@ -166,4 +174,72 @@ export function computePositionMetrics(asset: Pick<Asset, 'quantity' | 'purchase
   const roiPercent = costBasis > 0 ? (profitLoss / costBasis) * 100 : 0;
 
   return { costBasis, marketValue, marketValueUsd, profitLoss, roiPercent, currentPrice, currentPriceUsd };
+}
+
+export async function executePricingUpdate(): Promise<PricingExecutionResult> {
+  const start = Date.now();
+  console.log('Pricing update started');
+
+  let fxUpdated = false;
+  try {
+    const fxRates = await refreshFxRates();
+    fxUpdated = fxRates.length > 0;
+    console.log('FX updated');
+  } catch (error) {
+    console.error('pricing provider failed', error);
+  }
+
+  const assets = await prisma.asset.findMany({
+    select: { id: true, symbol: true, assetType: true, portfolioId: true },
+  });
+
+  const grouped = new Map<string, { assetIds: string[]; portfolioIds: Set<string> }>();
+  for (const asset of assets) {
+    const key = `${asset.symbol.toUpperCase()}-${asset.assetType.toUpperCase()}`;
+    const found = grouped.get(key);
+    if (found) {
+      found.assetIds.push(asset.id);
+      found.portfolioIds.add(asset.portfolioId);
+    } else {
+      grouped.set(key, { assetIds: [asset.id], portfolioIds: new Set([asset.portfolioId]) });
+    }
+  }
+
+  const updatedPortfolios = new Set<string>();
+  let assetsUpdated = 0;
+
+  for (const group of grouped.values()) {
+    for (const assetId of group.assetIds) {
+      try {
+        const updated = await updateAssetMarketValue(assetId);
+        if (updated) assetsUpdated += 1;
+      } catch (error) {
+        console.error('pricing provider failed', error);
+      }
+    }
+    group.portfolioIds.forEach((portfolioId) => updatedPortfolios.add(portfolioId));
+  }
+  console.log(`Assets updated: ${assetsUpdated}`);
+
+  let portfoliosUpdated = 0;
+  for (const portfolioId of updatedPortfolios) {
+    try {
+      await recalculatePortfolioValue(portfolioId);
+      portfoliosUpdated += 1;
+    } catch (error) {
+      console.error('pricing provider failed', error);
+    }
+  }
+  console.log(`Portfolios updated: ${portfoliosUpdated}`);
+
+  const executionTimeMs = Date.now() - start;
+  console.log(`Execution time: ${executionTimeMs}ms`);
+
+  return {
+    success: true,
+    assetsUpdated,
+    portfoliosUpdated,
+    fxUpdated,
+    executionTimeMs,
+  };
 }
