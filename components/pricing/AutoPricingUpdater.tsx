@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PricingStatusIndicator } from './PricingStatusIndicator';
+import { PricingStatusIndicator } from '@/components/pricing/PricingStatusIndicator';
 
 type PricingStatus = 'idle' | 'updating' | 'updated' | 'error';
 

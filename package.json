@@ -9,7 +9,9 @@
     "lint": "next lint",
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:casing": "tsc --noEmit",
+    "check:linux": "node scripts/linux-compat-audit.mjs && npm run check:casing"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

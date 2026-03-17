@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
-import { ThemeToggle } from './ThemeToggle';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 
 const sections = [
   { title: 'Core', items: [

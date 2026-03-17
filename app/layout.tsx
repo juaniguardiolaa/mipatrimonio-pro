@@ -1,6 +1,6 @@
 import './globals.css';
 import { AppShell } from '@/components/layout/AppShell';
-import { Providers } from '@/components/providers';
+import { Providers } from '@/components/Providers';
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
