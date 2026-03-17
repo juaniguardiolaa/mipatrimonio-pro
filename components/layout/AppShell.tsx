@@ -5,10 +5,10 @@ import { usePathname } from 'next/navigation';
 import { BarChart3, Bot, Building2, CircleDollarSign, Goal, Landmark, LayoutDashboard, RefreshCcw, Settings, Wallet } from 'lucide-react';
 import { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { Select } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
-import { Avatar } from '@/components/ui/avatar';
-import { ThemeToggle } from './theme-toggle';
+import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
+import { Avatar } from '@/components/ui/Avatar';
+import { ThemeToggle } from './ThemeToggle';
 
 const sections = [
   { title: 'Core', items: [

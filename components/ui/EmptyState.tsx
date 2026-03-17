@@ -1,5 +1,5 @@
 import { LucideIcon } from 'lucide-react';
-import { Button } from './button';
+import { Button } from './Button';
 
 export function EmptyState({ icon: Icon, title, description, actionLabel }: { icon: LucideIcon; title: string; description: string; actionLabel: string }) {
   return (

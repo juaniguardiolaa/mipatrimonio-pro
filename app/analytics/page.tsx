@@ -3,7 +3,7 @@
 import { ChartContainer } from '@/components/ui/ChartContainer';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Tabs } from '@/components/ui/tabs';
+import { Tabs } from '@/components/ui/Tabs';
 import { BarChart3, CalendarClock, CircleDollarSign, PieChart } from 'lucide-react';
 import { useState } from 'react';
 import { IncomeVsExpensesChart } from '@/components/charts/IncomeVsExpensesChart';

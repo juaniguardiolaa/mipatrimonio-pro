@@ -1,3 +1,5 @@
+'use client';
+
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Building2 } from 'lucide-react';

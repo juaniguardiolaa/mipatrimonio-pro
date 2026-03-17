@@ -6,7 +6,7 @@ import { ChartContainer } from '@/components/ui/ChartContainer';
 import { DataTable } from '@/components/ui/DataTable';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/Badge';
 import { CircleDollarSign, Landmark, Percent, TrendingUp } from 'lucide-react';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 

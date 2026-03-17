@@ -2,8 +2,8 @@
 
 import { ArrowDownAZ, ArrowUpAZ, Pencil } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Card, CardTitle } from './card';
-import { Table, Td, Th } from './table';
+import { Card, CardTitle } from './Card';
+import { Table, Td, Th } from './Table';
 
 type Column<T> = { key: keyof T; label: string; sortable?: boolean; render?: (row: T) => import('react').ReactNode };
 

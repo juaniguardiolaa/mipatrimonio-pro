@@ -1,6 +1,8 @@
+'use client';
+
 import { DataTable } from '@/components/ui/DataTable';
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Badge } from '@/components/ui/badge';
+import { Badge } from '@/components/ui/Badge';
 
 const rows = [
   { id: '1', date: '2026-03-02', name: 'Rent', category: 'Housing', amount: '$2,100.00' },

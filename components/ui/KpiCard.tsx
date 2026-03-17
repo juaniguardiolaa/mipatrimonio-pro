@@ -1,7 +1,7 @@
 import { LucideIcon } from 'lucide-react';
-import { Card } from './card';
+import { Card } from './Card';
 import { formatCurrency, formatPercent } from '@/lib/utils';
-import { Badge } from './badge';
+import { Badge } from './Badge';
 
 export function KpiCard({ title, value, trend, icon: Icon, currency = 'USD' }: { title: string; value: number; trend: number; icon: LucideIcon; currency?: string }) {
   const positive = trend >= 0;

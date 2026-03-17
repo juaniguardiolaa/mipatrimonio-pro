@@ -1,8 +1,10 @@
+'use client';
+
 import { SectionHeader } from '@/components/ui/SectionHeader';
-import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { Button } from '@/components/ui/Button';
+import { Separator } from '@/components/ui/Separator';
 
 export default function SettingsPage() {
   return (
