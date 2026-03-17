@@ -32,3 +32,14 @@ Agregar variable de entorno:
   - `Assets updated: <n>`
   - `Portfolios updated: <n>`
   - `Execution time: <ms>`
+
+## Compatibilidad Linux / Vercel (casing)
+
+Para evitar errores de build por diferencias de mayúsculas/minúsculas:
+
+- Ejecutá `npm run check:linux` antes de abrir PR.
+- El script valida:
+  - colisiones de archivos que difieren solo por casing
+  - imports relativos y con alias (`@/`) cuyo path no respeta el casing real del archivo en disco
+- TypeScript también fuerza casing consistente con `forceConsistentCasingInFileNames: true`.
+
