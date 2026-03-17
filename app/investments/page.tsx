@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { AssetAllocationChart } from '@/components/charts/AssetAllocationChart';
 import { ChartContainer } from '@/components/ui/ChartContainer';
 import { DataTable } from '@/components/ui/DataTable';
 import { KpiCard } from '@/components/ui/KpiCard';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { Badge } from '@/components/ui/Badge';
-import { CircleDollarSign, Landmark, Percent, TrendingUp } from 'lucide-react';
+import { CircleDollarSign, Landmark, Percent } from 'lucide-react';
 import { formatCurrency, formatPercent } from '@/lib/utils';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/Button';
 
 type Position = {
   id: string;
@@ -25,33 +28,64 @@ type Position = {
   roiPercent: number;
 };
 
+type Account = { id: string; name: string; institution: string };
+
 export default function InvestmentsPage() {
   const [positions, setPositions] = useState<Position[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [symbol, setSymbol] = useState('');
+  const [assetType, setAssetType] = useState('STOCK');
+  const [quantity, setQuantity] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [error, setError] = useState('');
+
+  async function loadData() {
+    const [portfolioRes, accountsRes] = await Promise.all([
+      fetch('/api/pricing/portfolio/demo', { cache: 'no-store' }),
+      fetch('/api/accounts', { cache: 'no-store' }),
+    ]);
+
+    if (portfolioRes.ok) {
+      const portfolioData = await portfolioRes.json();
+      setPositions(portfolioData.positions || []);
+    }
+
+    if (accountsRes.ok) {
+      const accountsData = await accountsRes.json();
+      setAccounts(accountsData.accounts || []);
+    }
+  }
 
   useEffect(() => {
-    fetch('/api/pricing/portfolio/demo', { cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.positions) setPositions(data.positions);
-      })
-      .catch(() => undefined);
+    loadData().catch(() => undefined);
   }, []);
 
-  const totals = useMemo(() => {
-    return positions.reduce(
-      (acc, row) => {
-        acc.invested += row.costBasis;
-        acc.current += row.marketValue;
-        acc.currentUsd += row.marketValueUsd;
-        acc.gain += row.profitLoss;
-        return acc;
-      },
-      { invested: 0, current: 0, currentUsd: 0, gain: 0 },
-    );
-  }, [positions]);
+  async function onCreateAsset(event: FormEvent) {
+    event.preventDefault();
+    setError('');
 
+    const res = await fetch('/api/assets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, assetType, quantity: Number(quantity), purchasePrice: Number(purchasePrice), currency: 'ARS', accountId: accountId || null }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.message || 'No se pudo crear la inversión.');
+      return;
+    }
+
+    setSymbol('');
+    setQuantity('');
+    setPurchasePrice('');
+    setAccountId('');
+    await loadData();
+  }
+
+  const totals = useMemo(() => positions.reduce((acc, row) => ({ invested: acc.invested + row.costBasis, current: acc.current + row.marketValue, currentUsd: acc.currentUsd + row.marketValueUsd, gain: acc.gain + row.profitLoss }), { invested: 0, current: 0, currentUsd: 0, gain: 0 }), [positions]);
   const roi = totals.invested > 0 ? (totals.gain / totals.invested) * 100 : 0;
-
   const byType = useMemo(() => {
     const map = new Map<string, number>();
     positions.forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
@@ -59,17 +93,32 @@ export default function InvestmentsPage() {
     return Array.from(map.entries()).map(([name, value], i) => ({ name, value, color: palette[i % palette.length] }));
   }, [positions]);
 
-  const kpis = [
-    { title: 'Valor invertido', value: totals.invested, trend: 1.5, icon: CircleDollarSign, currency: 'ARS' },
-    { title: 'Valor actual ARS', value: totals.current, trend: 2.8, icon: Landmark, currency: 'ARS' },
-    { title: 'Valor actual USD', value: totals.currentUsd, trend: 2.8, icon: Landmark, currency: 'USD' },
-    { title: 'Rendimiento %', value: roi, trend: roi, icon: Percent, currency: 'USD' },
-  ];
-
   return (
     <div className="space-y-6">
-      <SectionHeader title="Investments AR" subtitle="CEDEARs, bonos argentinos, acciones y crypto en ARS/USD" />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{kpis.map((k) => <KpiCard key={k.title} {...k} />)}</div>
+      <SectionHeader title="Investments AR" subtitle="Creá posiciones y valuá CEDEARs, bonos, acciones y crypto en ARS/USD." />
+
+      <form className="grid gap-3 rounded-lg border border-border bg-card p-4 md:grid-cols-6" onSubmit={onCreateAsset}>
+        <Input placeholder="Ticker (ej: AAPL)" value={symbol} onChange={(e) => setSymbol(e.target.value)} required />
+        <Select value={assetType} onChange={(e) => setAssetType(e.target.value)}>
+          <option value="STOCK">STOCK</option><option value="CEDEAR">CEDEAR</option><option value="BOND">BOND</option><option value="CRYPTO">CRYPTO</option><option value="ETF">ETF</option><option value="CASH">CASH</option>
+        </Select>
+        <Input placeholder="Cantidad" type="number" min="0.0001" step="0.0001" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
+        <Input placeholder="Precio compra" type="number" min="0.01" step="0.01" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} required />
+        <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          <option value="">Sin cuenta</option>
+          {accounts.map((account) => <option key={account.id} value={account.id}>{account.name} ({account.institution})</option>)}
+        </Select>
+        <Button>Agregar inversión</Button>
+        {error ? <p className="md:col-span-6 text-sm text-red-500">{error}</p> : null}
+      </form>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard title="Valor invertido" value={totals.invested} trend={1.5} icon={CircleDollarSign} currency="ARS" />
+        <KpiCard title="Valor actual ARS" value={totals.current} trend={2.8} icon={Landmark} currency="ARS" />
+        <KpiCard title="Valor actual USD" value={totals.currentUsd} trend={2.8} icon={Landmark} currency="USD" />
+        <KpiCard title="Rendimiento %" value={roi} trend={roi} icon={Percent} currency="USD" />
+      </div>
+
       <ChartContainer title="Distribución por tipo de activo"><AssetAllocationChart data={byType} /></ChartContainer>
 
       <DataTable
@@ -87,10 +136,6 @@ export default function InvestmentsPage() {
         ]}
         rows={positions}
       />
-
-      <div className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
-        Motor de valuación activo: CRYPTO (Binance), STOCK/ETF (IOL), CEDEAR (USD * CCL / ratio), BOND (IOL), CASH (nominal). <TrendingUp className="ml-1 inline h-4 w-4 text-primary" />
-      </div>
     </div>
   );
 }
