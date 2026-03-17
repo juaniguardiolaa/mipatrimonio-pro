@@ -13,24 +13,60 @@ export async function GET(_: Request, { params }: { params: { portfolioId: strin
       return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
 
-    let portfolio = await prisma.portfolio.findFirst({
-      where: params.portfolioId === 'demo' ? { userId } : { id: params.portfolioId, userId },
+    const requestedPortfolioId = params.portfolioId;
+    const aggregateAllPortfolios = requestedPortfolioId === 'demo';
+
+    console.info('[pricing.portfolio] request', {
+      userId,
+      requestedPortfolioId,
+      aggregateAllPortfolios,
     });
 
-    if (!portfolio) {
-      portfolio = await prisma.portfolio.create({
-        data: { userId, name: 'Portfolio Principal' },
-      });
+    let targetPortfolioIds: string[] = [];
+
+    if (aggregateAllPortfolios) {
+      const portfolios = await prisma.portfolio.findMany({ where: { userId }, select: { id: true } });
+      targetPortfolioIds = portfolios.map((portfolio) => portfolio.id);
+
+      if (targetPortfolioIds.length === 0) {
+        const created = await prisma.portfolio.create({
+          data: { userId, name: 'Portfolio Principal' },
+          select: { id: true },
+        });
+        targetPortfolioIds = [created.id];
+      }
+    } else {
+      let portfolio = await prisma.portfolio.findFirst({ where: { id: requestedPortfolioId, userId }, select: { id: true } });
+
+      if (!portfolio) {
+        portfolio = await prisma.portfolio.create({
+          data: { userId, name: 'Portfolio Principal' },
+          select: { id: true },
+        });
+      }
+
+      targetPortfolioIds = [portfolio.id];
     }
 
-    const assets = await prisma.asset.findMany({ where: { portfolioId: portfolio.id, userId } });
+    const assets = await prisma.asset.findMany({ where: { userId, portfolioId: { in: targetPortfolioIds } } });
+
+    console.info('[pricing.portfolio] assets found', {
+      requestedPortfolioId,
+      targetPortfolioCount: targetPortfolioIds.length,
+      assetsCount: assets.length,
+    });
 
     await Promise.all(assets.map((asset) => updateAssetMarketValue(asset.id)));
-    const updatedPortfolio = await recalculatePortfolioValue(portfolio.id);
+
+    const updatedPortfolioIds = [...new Set(assets.map((asset) => asset.portfolioId))];
+    for (const portfolioId of updatedPortfolioIds) {
+      await recalculatePortfolioValue(portfolioId);
+    }
+
     const userTotals = await recalculateUserNetWorth(userId);
     const ccl = await getFxRate('USD_ARS_CCL');
 
-    const positions = (await prisma.asset.findMany({ where: { portfolioId: portfolio.id, userId } })).map((asset) => ({
+    const positions = (await prisma.asset.findMany({ where: { userId, portfolioId: { in: targetPortfolioIds } } })).map((asset) => ({
       id: asset.id,
       symbol: asset.symbol,
       ticker: asset.ticker || asset.symbol,
@@ -40,18 +76,30 @@ export async function GET(_: Request, { params }: { params: { portfolioId: strin
       currency: asset.currency,
       ...computePositionMetrics(asset),
       lastPriceUpdate: asset.lastPriceUpdate,
+      portfolioId: asset.portfolioId,
     }));
+
+    const scopedNetWorthArs = positions.reduce((sum, position) => sum + position.marketValue, 0);
+    const scopedNetWorthUsd = positions.reduce((sum, position) => sum + position.marketValueUsd, 0);
 
     return NextResponse.json({
       ok: true,
-      portfolio: updatedPortfolio,
+      aggregateAllPortfolios,
+      requestedPortfolioId,
+      portfolioIds: targetPortfolioIds,
       positions,
-      netWorthArs: updatedPortfolio.netWorth,
-      netWorthUsd: updatedPortfolio.netWorthUsd || userTotals.netWorthUsd || (ccl ? updatedPortfolio.netWorth / ccl : 0),
+      netWorthArs: aggregateAllPortfolios ? userTotals.netWorthArs : scopedNetWorthArs,
+      netWorthUsd: aggregateAllPortfolios
+        ? userTotals.netWorthUsd || (ccl ? userTotals.netWorthArs / ccl : 0)
+        : scopedNetWorthUsd || (ccl ? scopedNetWorthArs / ccl : 0),
       fx: { ccl },
       timestamp: new Date(),
     });
-  } catch {
+  } catch (error) {
+    console.error('[pricing.portfolio] fatal error', {
+      message: error instanceof Error ? error.message : 'unknown error',
+      stack: error instanceof Error ? error.stack : null,
+    });
     return NextResponse.json({ ok: false, message: 'No se pudo obtener portfolio' }, { status: 500 });
   }
 }
