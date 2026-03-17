@@ -16,6 +16,7 @@ cp .env.example .env
 
 ```bash
 npm install
+# en producción (Vercel build): prisma migrate deploy
 npx prisma db push
 npm run dev
 ```
@@ -63,3 +64,10 @@ Endpoint seguro:
 - Valida colisiones por casing de archivos.
 - Valida imports (`./`, `../`, `@/`) con casing exacto.
 - TypeScript fuerza consistencia con `forceConsistentCasingInFileNames`.
+
+
+## Diagnóstico de registro (500)
+
+El endpoint `POST /api/auth/register` ahora valida conectividad Prisma y existencia de tablas críticas (`User`, `Session`).
+Si faltan tablas responde `503` con mensaje explícito para correr migraciones (`prisma migrate deploy`).
+También emite logs detallados con `requestId` para trazabilidad en Vercel.
