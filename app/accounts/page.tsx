@@ -23,7 +23,7 @@ export default function AccountsPage() {
   const [error, setError] = useState('');
 
   async function loadAccounts() {
-    const res = await fetch('/api/accounts', { cache: 'no-store' });
+    const res = await fetch('/api/accounts', { cache: 'no-store', credentials: 'include' });
     if (!res.ok) return;
     const data = await res.json();
     setAccounts(data.accounts || []);
@@ -41,6 +41,7 @@ export default function AccountsPage() {
     const res = await fetch('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ name, institution, type: 'BROKER', currency: 'ARS' }),
     });
 

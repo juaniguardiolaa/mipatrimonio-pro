@@ -1,23 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executePricingUpdate } from '@/lib/services/pricing.service';
+import { getAuthSession } from '@/lib/auth/session';
 
 const RATE_LIMIT_MS = 60_000;
 const TIMEOUT_MS = 25_000;
 let lastUpdateExecution = 0;
 let lastRateLimitResponse: Record<string, unknown> | null = null;
 
-function isAuthorized(request: NextRequest) {
+async function isAuthorized(request: NextRequest) {
   if (process.env.NODE_ENV === 'development') return true;
 
   const expected = process.env.CRON_SECRET;
   const auth = request.headers.get('authorization') || '';
+  const hasValidCronToken = Boolean(expected) && auth === `Bearer ${expected}`;
 
-  if (!expected) return false;
-  return auth === `Bearer ${expected}`;
+  if (hasValidCronToken) {
+    console.info('[pricing.update] authorized by CRON_SECRET');
+    return true;
+  }
+
+  const session = await getAuthSession();
+  if (session?.user?.id) {
+    console.info('[pricing.update] authorized by user session', { userId: session.user.id });
+    return true;
+  }
+
+  console.warn('[pricing.update] unauthorized request', {
+    hasAuthorizationHeader: Boolean(auth),
+    hasExpectedCronSecret: Boolean(expected),
+    cookieNames: request.cookies.getAll().map((cookie) => cookie.name),
+  });
+
+  return false;
 }
 
 export async function GET(request: NextRequest) {
-  if (!isAuthorized(request)) {
+  if (!(await isAuthorized(request))) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 

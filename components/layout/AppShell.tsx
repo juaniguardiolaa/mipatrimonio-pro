@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Avatar initials={initials} />
-            <Button variant="outline" size="sm" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}><LogOut className="mr-1 h-4 w-4" />Salir</Button>
+            <Button variant="outline" size="sm" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); window.location.href = '/login'; }}><LogOut className="mr-1 h-4 w-4" />Salir</Button>
           </div>
         </header>
         <div className="p-4 lg:p-8">{children}</div>

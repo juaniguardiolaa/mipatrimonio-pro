@@ -73,6 +73,8 @@ export async function POST(request: Request) {
     });
 
     await createSession(user.id);
+    console.info('[auth.register] session created', { requestId, userId: user.id, email: user.email });
+
     return NextResponse.json({ ok: true, user }, { status: 201 });
   } catch (error) {
     console.error('[auth.register] fatal error', {

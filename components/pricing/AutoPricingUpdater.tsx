@@ -16,11 +16,6 @@ export function AutoPricingUpdater({ onUpdated }: { onUpdated?: () => Promise<vo
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const executeUpdate = useCallback(async (force = false) => {
-    if (process.env.NODE_ENV !== 'development') {
-      setStatus('idle');
-      return;
-    }
-
     if (runningRef.current) return;
 
     const lastRaw = typeof window !== 'undefined' ? window.localStorage.getItem(LOCAL_STORAGE_KEY) : null;
@@ -37,7 +32,7 @@ export function AutoPricingUpdater({ onUpdated }: { onUpdated?: () => Promise<vo
     setStatus('updating');
 
     try {
-      const res = await fetch('/api/pricing/update', { method: 'GET', cache: 'no-store' });
+      const res = await fetch('/api/pricing/update', { method: 'GET', cache: 'no-store', credentials: 'include' });
       if (!res.ok) throw new Error('pricing update failed');
 
       const now = Date.now();

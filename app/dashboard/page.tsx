@@ -39,7 +39,7 @@ export default function DashboardPage() {
   const [baseCurrency, setBaseCurrency] = useState<'ARS' | 'USD'>('ARS');
 
   const fetchPortfolioData = useCallback(async () => {
-    const res = await fetch('/api/pricing/portfolio/demo', { cache: 'no-store' });
+    const res = await fetch('/api/pricing/portfolio/demo', { cache: 'no-store', credentials: 'include' });
     if (!res.ok) return;
 
     const data = await res.json();

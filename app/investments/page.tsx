@@ -42,8 +42,8 @@ export default function InvestmentsPage() {
 
   async function loadData() {
     const [portfolioRes, accountsRes] = await Promise.all([
-      fetch('/api/pricing/portfolio/demo', { cache: 'no-store' }),
-      fetch('/api/accounts', { cache: 'no-store' }),
+      fetch('/api/pricing/portfolio/demo', { cache: 'no-store', credentials: 'include' }),
+      fetch('/api/accounts', { cache: 'no-store', credentials: 'include' }),
     ]);
 
     if (portfolioRes.ok) {
@@ -68,6 +68,7 @@ export default function InvestmentsPage() {
     const res = await fetch('/api/assets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ symbol, assetType, quantity: Number(quantity), purchasePrice: Number(purchasePrice), currency: 'ARS', accountId: accountId || null }),
     });
 
