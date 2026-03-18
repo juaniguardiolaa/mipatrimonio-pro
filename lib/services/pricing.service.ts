@@ -1,11 +1,11 @@
 import { Asset, PriceSnapshot } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { getBinancePrice } from '@/lib/integrations/binance-price.service';
-import { getIolPrice } from '@/lib/integrations/iol-price.service';
+import { getCryptoPrice } from '@/lib/providers/binance';
+import { getStockPrice } from '@/lib/providers/yahoo';
 import { getFxRate, refreshFxRates } from '@/lib/pricing/fx.service';
 import { valuateAsset } from './valuation.service';
 
-type SupportedSource = 'BINANCE' | 'IOL';
+type SupportedSource = 'BINANCE' | 'YAHOO_FINANCE';
 
 type CurrentPrice = {
   symbol: string;
@@ -24,13 +24,13 @@ export type PricingExecutionResult = {
 };
 
 function resolveSource(assetType: string): SupportedSource {
-  return assetType.toUpperCase() === 'CRYPTO' ? 'BINANCE' : 'IOL';
+  return assetType.toUpperCase() === 'CRYPTO' ? 'BINANCE' : 'YAHOO_FINANCE';
 }
 
 async function getCachedSnapshot(symbol: string): Promise<PriceSnapshot | null> {
-  const sixtySecondsAgo = new Date(Date.now() - 60_000);
+  const thirtySecondsAgo = new Date(Date.now() - 30_000);
   return prisma.priceSnapshot.findFirst({
-    where: { symbol: symbol.toUpperCase(), timestamp: { gte: sixtySecondsAgo } },
+    where: { symbol: symbol.toUpperCase(), timestamp: { gte: thirtySecondsAgo } },
     orderBy: { timestamp: 'desc' },
   });
 }
@@ -48,33 +48,29 @@ export async function getCurrentPrice(symbol: string, assetType = 'STOCK'): Prom
   }
 
   const source = resolveSource(assetType);
-  let quote: CurrentPrice | null = null;
-
   if (source === 'BINANCE') {
-    const cryptoQuote = await getBinancePrice(symbol);
-    if (cryptoQuote) {
-      quote = { symbol: cryptoQuote.symbol, price: cryptoQuote.price, currency: 'USD', source, timestamp: cryptoQuote.timestamp };
-    }
-  } else {
-    const equityQuote = await getIolPrice(symbol);
-    if (equityQuote) {
-      quote = { symbol: equityQuote.ticker, price: equityQuote.price, currency: equityQuote.currency, source, timestamp: equityQuote.timestamp };
-    }
+    const cryptoQuote = await getCryptoPrice(symbol);
+    if (!cryptoQuote) return null;
+
+    return {
+      symbol: cryptoQuote.symbol,
+      price: cryptoQuote.priceUsd,
+      currency: 'USD',
+      source,
+      timestamp: cryptoQuote.timestamp,
+    };
   }
 
-  if (!quote) return null;
+  const equityQuote = await getStockPrice(symbol);
+  if (!equityQuote) return null;
 
-  await prisma.priceSnapshot.create({
-    data: {
-      symbol: quote.symbol,
-      price: quote.price,
-      currency: quote.currency,
-      source: quote.source,
-      timestamp: quote.timestamp,
-    },
-  });
-
-  return quote;
+  return {
+    symbol: equityQuote.symbol,
+    price: equityQuote.priceUsd,
+    currency: equityQuote.currency,
+    source,
+    timestamp: equityQuote.timestamp,
+  };
 }
 
 export async function updateAssetMarketValue(assetId: string) {
@@ -88,12 +84,20 @@ export async function updateAssetMarketValue(assetId: string) {
   });
 
   const valuation = await valuateAsset(asset);
+  if (!valuation) {
+    console.warn('Skipping asset because no market data and no stale price was available', {
+      assetId: asset.id,
+      symbol: asset.symbol,
+      assetType: asset.assetType,
+    });
+    return null;
+  }
 
   await prisma.priceSnapshot.create({
     data: {
       symbol: asset.symbol.toUpperCase(),
-      price: valuation.marketPrice,
-      currency: 'ARS',
+      price: valuation.marketPriceUsd,
+      currency: 'USD',
       source: valuation.source,
       timestamp: valuation.timestamp,
     },

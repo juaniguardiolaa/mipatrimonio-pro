@@ -71,3 +71,16 @@ Endpoint seguro:
 El endpoint `POST /api/auth/register` ahora valida conectividad Prisma y existencia de tablas críticas (`User`, `Session`).
 Si faltan tablas responde `503` con mensaje explícito para correr migraciones (`prisma migrate deploy`).
 También emite logs detallados con `requestId` para trazabilidad en Vercel.
+
+
+## Market data real
+
+El pricing engine usa market data real:
+
+- `CRYPTO` → Binance (`/api/v3/ticker/price`)
+- `STOCK` / `ETF` → Yahoo Finance (`/v7/finance/quote`)
+- `CEDEAR` → precio USD del underlying + CCL / ratio
+- `BOND` → provider de bonos
+
+`purchasePrice` se mantiene como costo histórico.
+`marketPrice` / `marketPriceUsd` se actualizan solo con market data o con el último precio de mercado guardado si el provider falla.
