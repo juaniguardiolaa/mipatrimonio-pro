@@ -9,6 +9,8 @@ const BINANCE_TICKER_URL = 'https://api.binance.com/api/v3/ticker/price';
 
 export async function getCryptoPrice(symbol: string): Promise<CryptoMarketQuote | null> {
   const normalized = symbol.toUpperCase().endsWith('USDT') ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
+  console.log('Using Binance symbol:', normalized);
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
 
@@ -18,11 +20,17 @@ export async function getCryptoPrice(symbol: string): Promise<CryptoMarketQuote 
       signal: controller.signal,
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      throw new Error(`Binance API ${response.status} for ${normalized}`);
+    }
 
     const data = await response.json() as { symbol?: string; price?: string };
-    const priceUsd = Number(data.price);
-    if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+    const priceUsd = parseFloat(data.price ?? 'NaN');
+    console.log('Price USD:', priceUsd);
+
+    if (priceUsd === null || priceUsd === undefined || Number.isNaN(priceUsd)) {
+      throw new Error(`Invalid price for ${symbol}`);
+    }
 
     return {
       symbol: normalized.replace(/USDT$/, ''),
@@ -30,7 +38,12 @@ export async function getCryptoPrice(symbol: string): Promise<CryptoMarketQuote 
       source: 'BINANCE',
       timestamp: new Date(),
     };
-  } catch {
+  } catch (error) {
+    console.error('Binance provider failed', {
+      symbol,
+      normalized,
+      message: error instanceof Error ? error.message : 'unknown error',
+    });
     return null;
   } finally {
     clearTimeout(timeout);

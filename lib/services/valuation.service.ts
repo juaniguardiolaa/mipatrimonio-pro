@@ -17,7 +17,9 @@ export type ValuationResult = {
 };
 
 function buildStaleValuation(asset: Pick<Asset, 'symbol' | 'quantity' | 'currency' | 'marketPrice' | 'marketPriceUsd' | 'lastPriceUpdate'>): ValuationResult | null {
-  if (!asset.marketPrice || !asset.marketPriceUsd) return null;
+  if (asset.marketPrice === null || asset.marketPrice === undefined || asset.marketPriceUsd === null || asset.marketPriceUsd === undefined) {
+    return null;
+  }
 
   return {
     marketPrice: asset.marketPrice,
@@ -29,6 +31,13 @@ function buildStaleValuation(asset: Pick<Asset, 'symbol' | 'quantity' | 'currenc
     timestamp: asset.lastPriceUpdate || new Date(),
     stale: true,
   };
+}
+
+function ensureNumber(value: number | null | undefined, symbol: string) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    throw new Error(`Invalid price for ${symbol}`);
+  }
+  return value;
 }
 
 function ensureFxRate(rate: number | null, symbol: string) {
@@ -48,11 +57,9 @@ export async function valuateAsset(
   try {
     if (asset.assetType === AssetType.CRYPTO) {
       const quote = await getCryptoPrice(symbol);
-      if (!quote) return buildStaleValuation(asset);
-
-      const priceUsd = quote.priceUsd;
+      const priceUsd = ensureNumber(quote?.priceUsd, symbol);
       const priceArs = priceUsd * ensureFxRate(ccl, 'USD_ARS_CCL');
-      console.log('Market data quote:', { symbol, priceUsd, source: quote.source });
+      console.log('Market data quote:', { symbol, priceUsd, source: quote?.source || 'BINANCE' });
 
       return {
         marketPrice: priceArs,
@@ -60,66 +67,65 @@ export async function valuateAsset(
         marketValue: priceArs * asset.quantity,
         marketValueUsd: priceUsd * asset.quantity,
         currency: 'ARS',
-        source: quote.source,
-        timestamp: quote.timestamp,
+        source: quote?.source || 'BINANCE',
+        timestamp: quote?.timestamp || now,
         stale: false,
       };
     }
 
     if (asset.assetType === AssetType.STOCK || asset.assetType === AssetType.ETF) {
       const quote = await getStockPrice(symbol);
-      if (!quote) return buildStaleValuation(asset);
-
-      const priceUsd = quote.priceUsd;
-      const priceArs = quote.currency === 'USD'
-        ? priceUsd * ensureFxRate(ccl, 'USD_ARS_CCL')
-        : priceUsd;
-      const marketPriceUsd = quote.currency === 'USD'
-        ? priceUsd
-        : (await convertArsToUsd(priceUsd)) ?? 0;
-      console.log('Market data quote:', { symbol, priceUsd: marketPriceUsd, source: quote.source });
+      const providerPrice = ensureNumber(quote?.priceUsd, symbol);
+      const priceArs = quote?.currency === 'USD'
+        ? providerPrice * ensureFxRate(ccl, 'USD_ARS_CCL')
+        : providerPrice;
+      const marketPriceUsd = quote?.currency === 'USD'
+        ? providerPrice
+        : (await convertArsToUsd(providerPrice)) ?? 0;
+      const validatedMarketPriceUsd = ensureNumber(marketPriceUsd, symbol);
+      console.log('Market data quote:', { symbol, priceUsd: validatedMarketPriceUsd, source: quote?.source || 'YAHOO_FINANCE' });
 
       return {
         marketPrice: priceArs,
-        marketPriceUsd,
+        marketPriceUsd: validatedMarketPriceUsd,
         marketValue: priceArs * asset.quantity,
-        marketValueUsd: marketPriceUsd * asset.quantity,
-        currency: quote.currency,
-        source: quote.source,
-        timestamp: quote.timestamp,
+        marketValueUsd: validatedMarketPriceUsd * asset.quantity,
+        currency: quote?.currency || 'USD',
+        source: quote?.source || 'YAHOO_FINANCE',
+        timestamp: quote?.timestamp || now,
         stale: false,
       };
     }
 
     if (asset.assetType === AssetType.CEDEAR) {
       const quote = await getStockPrice(symbol);
-      if (!quote) return buildStaleValuation(asset);
-
+      const priceUsd = ensureNumber(quote?.priceUsd, symbol);
       const ratio = asset.cedearRatio || getCedearRatio(symbol);
       const fx = ensureFxRate(ccl, 'USD_ARS_CCL');
-      const priceUsd = quote.priceUsd;
-      const priceArs = (priceUsd * fx) / ratio;
-      console.log('Market data quote:', { symbol, priceUsd, source: `${quote.source}+CCL/CEDEAR_RATIO` });
+      const underlyingUsdPerCedear = priceUsd / ratio;
+      const priceArs = underlyingUsdPerCedear * fx;
+      console.log('Market data quote:', { symbol, priceUsd: underlyingUsdPerCedear, source: `${quote?.source || 'YAHOO_FINANCE'}+CCL/CEDEAR_RATIO` });
 
       return {
         marketPrice: priceArs,
-        marketPriceUsd: priceUsd / ratio,
+        marketPriceUsd: underlyingUsdPerCedear,
         marketValue: priceArs * asset.quantity,
-        marketValueUsd: (priceUsd / ratio) * asset.quantity,
+        marketValueUsd: underlyingUsdPerCedear * asset.quantity,
         currency: 'ARS',
         source: 'YAHOO_FINANCE_CEDEAR',
-        timestamp: quote.timestamp,
+        timestamp: quote?.timestamp || now,
         stale: false,
       };
     }
 
     if (asset.assetType === AssetType.BOND) {
       const bond = await getBondPrice(symbol);
-      if (!bond) return buildStaleValuation(asset);
-
-      const fx = ensureFxRate(ccl, 'USD_ARS_CCL');
-      const marketPriceArs = bond.currency === 'USD' ? bond.price * fx : bond.price;
-      const marketPriceUsd = bond.currency === 'USD' ? bond.price : (await convertArsToUsd(bond.price)) ?? 0;
+      const marketPriceUsd = bond?.currency === 'USD'
+        ? ensureNumber(bond.price, symbol)
+        : ensureNumber(await convertArsToUsd(ensureNumber(bond?.price, symbol)), symbol);
+      const marketPriceArs = bond?.currency === 'USD'
+        ? marketPriceUsd * ensureFxRate(ccl, 'USD_ARS_CCL')
+        : ensureNumber(bond?.price, symbol);
       console.log('Market data quote:', { symbol, priceUsd: marketPriceUsd, source: 'IOL_BONDS' });
 
       return {
@@ -127,9 +133,9 @@ export async function valuateAsset(
         marketPriceUsd,
         marketValue: marketPriceArs * asset.quantity,
         marketValueUsd: marketPriceUsd * asset.quantity,
-        currency: bond.currency,
+        currency: bond?.currency || 'ARS',
         source: 'IOL_BONDS',
-        timestamp: bond.timestamp,
+        timestamp: bond?.timestamp || now,
         stale: false,
       };
     }

@@ -85,12 +85,7 @@ export async function updateAssetMarketValue(assetId: string) {
 
   const valuation = await valuateAsset(asset);
   if (!valuation) {
-    console.warn('Skipping asset because no market data and no stale price was available', {
-      assetId: asset.id,
-      symbol: asset.symbol,
-      assetType: asset.assetType,
-    });
-    return null;
+    throw new Error(`No valuation available for ${asset.symbol}`);
   }
 
   await prisma.priceSnapshot.create({
@@ -106,11 +101,11 @@ export async function updateAssetMarketValue(assetId: string) {
   return prisma.asset.update({
     where: { id: asset.id },
     data: {
-      marketPrice: valuation.marketPrice,
       marketPriceUsd: valuation.marketPriceUsd,
+      marketPrice: valuation.marketPrice,
       marketValue: valuation.marketValue,
       marketValueUsd: valuation.marketValueUsd,
-      lastPriceUpdate: valuation.timestamp,
+      lastPriceUpdate: new Date(),
     },
   });
 }
