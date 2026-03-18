@@ -15,16 +15,35 @@ export type ValuationResult = {
   timestamp: Date;
 };
 
-export async function valuateAsset(asset: Pick<Asset, 'symbol' | 'ticker' | 'assetType' | 'quantity' | 'currency' | 'cedearRatio'>): Promise<ValuationResult | null> {
-  const ticker = (asset.ticker || asset.symbol).toUpperCase();
+function valuationFromPurchasePrice(asset: Pick<Asset, 'symbol' | 'assetType' | 'quantity' | 'currency' | 'purchasePrice'>, now: Date): ValuationResult {
+  const fallbackArs = asset.currency === 'ARS' ? asset.purchasePrice : asset.purchasePrice * ((Number(process.env.FALLBACK_USD_ARS) || 1200));
+  const fallbackUsd = asset.currency === 'USD' ? asset.purchasePrice : asset.purchasePrice / ((Number(process.env.FALLBACK_USD_ARS) || 1200));
+
+  return {
+    marketPrice: fallbackArs,
+    marketPriceUsd: fallbackUsd,
+    marketValue: fallbackArs * asset.quantity,
+    marketValueUsd: fallbackUsd * asset.quantity,
+    currency: asset.currency,
+    source: 'FALLBACK_PURCHASE_PRICE',
+    timestamp: now,
+  };
+}
+
+export async function valuateAsset(asset: Pick<Asset, 'symbol' | 'assetType' | 'quantity' | 'currency' | 'cedearRatio' | 'purchasePrice'>): Promise<ValuationResult> {
+  const symbol = asset.symbol.toUpperCase();
   const now = new Date();
 
   if (asset.assetType === AssetType.CRYPTO) {
-    const quote = await getBinancePrice(ticker);
-    if (!quote) return null;
+    const quote = await getBinancePrice(symbol);
+    if (!quote) {
+      return valuationFromPurchasePrice(asset, now);
+    }
+
     const priceUsd = quote.price;
     const ccl = await getFxRate('USD_ARS_CCL');
     const priceArs = ccl ? priceUsd * ccl : priceUsd;
+
     return {
       marketPrice: priceArs,
       marketPriceUsd: priceUsd,
@@ -37,10 +56,14 @@ export async function valuateAsset(asset: Pick<Asset, 'symbol' | 'ticker' | 'ass
   }
 
   if (asset.assetType === AssetType.CEDEAR) {
-    const quote = await getCedearPriceARS(ticker);
-    if (!quote) return null;
-    const ratio = asset.cedearRatio || getCedearRatio(ticker);
+    const quote = await getCedearPriceARS(symbol);
+    if (!quote) {
+      return valuationFromPurchasePrice(asset, now);
+    }
+
+    const ratio = asset.cedearRatio || getCedearRatio(symbol);
     const usdPrice = (quote.price * ratio) / quote.ccl;
+
     return {
       marketPrice: quote.price,
       marketPriceUsd: usdPrice,
@@ -53,11 +76,15 @@ export async function valuateAsset(asset: Pick<Asset, 'symbol' | 'ticker' | 'ass
   }
 
   if (asset.assetType === AssetType.BOND) {
-    const bond = await getBondPrice(ticker);
-    if (!bond) return null;
+    const bond = await getBondPrice(symbol);
+    if (!bond) {
+      return valuationFromPurchasePrice(asset, now);
+    }
+
     const marketValue = bond.price * asset.quantity;
     const marketValueUsd = bond.currency === 'USD' ? marketValue : (await convertArsToUsd(marketValue)) ?? 0;
     const marketPriceUsd = bond.currency === 'USD' ? bond.price : (await convertArsToUsd(bond.price)) ?? 0;
+
     return {
       marketPrice: bond.currency === 'ARS' ? bond.price : bond.price * ((await getFxRate('USD_ARS_CCL')) ?? 1),
       marketPriceUsd,
@@ -73,6 +100,7 @@ export async function valuateAsset(asset: Pick<Asset, 'symbol' | 'ticker' | 'ass
     const nominal = asset.quantity;
     const usd = asset.currency === 'USD' ? nominal : (await convertArsToUsd(nominal)) ?? 0;
     const ars = asset.currency === 'ARS' ? nominal : nominal * ((await getFxRate('USD_ARS_CCL')) ?? 1);
+
     return {
       marketPrice: ars,
       marketPriceUsd: usd,
@@ -85,8 +113,11 @@ export async function valuateAsset(asset: Pick<Asset, 'symbol' | 'ticker' | 'ass
   }
 
   // STOCK / ETF
-  const stock = await getIolPrice(ticker);
-  if (!stock) return null;
+  const stock = await getIolPrice(symbol);
+  if (!stock) {
+    return valuationFromPurchasePrice(asset, now);
+  }
+
   const isUsd = stock.currency === 'USD';
   const ccl = await getFxRate('USD_ARS_CCL');
   const marketPriceArs = isUsd ? stock.price * (ccl ?? 1) : stock.price;

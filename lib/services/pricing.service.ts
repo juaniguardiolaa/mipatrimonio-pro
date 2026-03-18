@@ -81,8 +81,13 @@ export async function updateAssetMarketValue(assetId: string) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
   if (!asset) return null;
 
+  console.log('Processing asset:', {
+    symbol: asset.symbol,
+    type: asset.assetType,
+    exchange: asset.exchange,
+  });
+
   const valuation = await valuateAsset(asset);
-  if (!valuation) return null;
 
   await prisma.priceSnapshot.create({
     data: {
