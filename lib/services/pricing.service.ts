@@ -1,11 +1,11 @@
 import { Asset, PriceSnapshot } from '@prisma/client';
 import { prisma } from '@/lib/db';
-import { getCryptoPrice } from '@/lib/providers/binance';
+import { getCryptoPrice, normalizeCryptoSymbol } from '@/lib/providers/binance';
 import { getStockPrice } from '@/lib/providers/yahoo';
 import { getFxRate, refreshFxRates } from '@/lib/pricing/fx.service';
 import { valuateAsset } from './valuation.service';
 
-type SupportedSource = 'BINANCE' | 'YAHOO_FINANCE';
+type SupportedSource = 'COINGECKO' | 'STOCK_FALLBACK';
 
 type CurrentPrice = {
   symbol: string;
@@ -24,7 +24,7 @@ export type PricingExecutionResult = {
 };
 
 function resolveSource(assetType: string): SupportedSource {
-  return assetType.toUpperCase() === 'CRYPTO' ? 'BINANCE' : 'YAHOO_FINANCE';
+  return assetType.toUpperCase() === 'CRYPTO' ? 'COINGECKO' : 'STOCK_FALLBACK';
 }
 
 async function getCachedSnapshot(symbol: string): Promise<PriceSnapshot | null> {
@@ -48,12 +48,12 @@ export async function getCurrentPrice(symbol: string, assetType = 'STOCK'): Prom
   }
 
   const source = resolveSource(assetType);
-  if (source === 'BINANCE') {
+  if (source === 'COINGECKO') {
     const cryptoQuote = await getCryptoPrice(symbol);
     if (!cryptoQuote) return null;
 
     return {
-      symbol: cryptoQuote.symbol,
+      symbol: normalizeCryptoSymbol(cryptoQuote.symbol),
       price: cryptoQuote.priceUsd,
       currency: 'USD',
       source,

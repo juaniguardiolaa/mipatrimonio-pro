@@ -4,44 +4,67 @@ export type CryptoPriceQuote = {
   timestamp: Date;
 };
 
-const BINANCE_BASE_URL = 'https://api.binance.com/api/v3/ticker/price';
+const COINGECKO_SIMPLE_PRICE_URL = 'https://api.coingecko.com/api/v3/simple/price';
+
+const COINGECKO_ID_MAP: Record<string, string> = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  SOL: 'solana',
+  BNB: 'binancecoin',
+  XRP: 'ripple',
+  ADA: 'cardano',
+  DOGE: 'dogecoin',
+  MATIC: 'matic-network',
+  AVAX: 'avalanche-2',
+  DOT: 'polkadot',
+  LTC: 'litecoin',
+  LINK: 'chainlink',
+};
 
 function normalizeCryptoSymbol(symbol: string): string {
-  const normalized = symbol.toUpperCase();
-  if (normalized.endsWith('USDT')) return normalized;
-  return `${normalized}USDT`;
+  return symbol.toUpperCase().replace(/USDT$/, '');
 }
 
 export async function getBinancePrice(symbol: string): Promise<CryptoPriceQuote | null> {
   const normalized = normalizeCryptoSymbol(symbol);
+  const id = COINGECKO_ID_MAP[normalized];
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
 
   try {
     console.log('Pricing asset:', symbol);
     console.log('Normalized:', normalized);
-    const response = await fetch(`${BINANCE_BASE_URL}?symbol=${normalized}`, { signal: controller.signal, cache: 'no-store' });
+    console.log('Using CoinGecko for', normalized);
+    if (!id) return null;
+
+    const response = await fetch(`${COINGECKO_SIMPLE_PRICE_URL}?ids=${encodeURIComponent(id)}&vs_currencies=usd`, {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: {
+        accept: 'application/json',
+      },
+    });
     if (!response.ok) {
-      console.error('Binance HTTP error', response.status);
+      console.error('CoinGecko HTTP error', response.status);
       return null;
     }
 
-    const data = await response.json() as { symbol: string; price: string };
-    console.log('Binance API response:', data);
-    const price = parseFloat(data?.price);
+    const data = await response.json() as Record<string, { usd?: number }>;
+    console.log('CoinGecko API response:', data);
+    const price = Number(data[id]?.usd ?? null);
     console.log('Price result:', price);
     if (!price || Number.isNaN(price)) {
-      console.error('Invalid Binance response', data);
+      console.error('Invalid CoinGecko response', data);
       return null;
     }
 
     return {
-      symbol: data.symbol.replace('USDT', ''),
+      symbol: normalized,
       price,
       timestamp: new Date(),
     };
   } catch (error) {
-    console.error('Binance provider failed', {
+    console.error('CoinGecko error', {
       symbol,
       normalized,
       message: error instanceof Error ? error.message : 'unknown error',
