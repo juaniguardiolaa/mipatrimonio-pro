@@ -14,6 +14,9 @@ export async function getStockPrice(symbol: string): Promise<EquityMarketQuote |
   const timeout = setTimeout(() => controller.abort(), 7000);
 
   try {
+    console.log('Pricing asset:', symbol);
+    console.log('Normalized:', normalized);
+
     const response = await fetch(`${YAHOO_QUOTE_URL}?symbols=${encodeURIComponent(normalized)}`, {
       cache: 'no-store',
       signal: controller.signal,
@@ -22,7 +25,10 @@ export async function getStockPrice(symbol: string): Promise<EquityMarketQuote |
       },
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.error('Yahoo HTTP error', response.status);
+      return null;
+    }
 
     const data = await response.json() as {
       quoteResponse?: {
@@ -36,7 +42,11 @@ export async function getStockPrice(symbol: string): Promise<EquityMarketQuote |
 
     const quote = data.quoteResponse?.result?.[0];
     const priceUsd = Number(quote?.regularMarketPrice);
-    if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+    console.log('Price result:', priceUsd);
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+      console.error('Invalid Yahoo response', data);
+      return null;
+    }
 
     return {
       symbol: quote?.symbol?.toUpperCase() || normalized,
@@ -45,7 +55,12 @@ export async function getStockPrice(symbol: string): Promise<EquityMarketQuote |
       source: 'YAHOO_FINANCE',
       timestamp: new Date(),
     };
-  } catch {
+  } catch (error) {
+    console.error('Yahoo provider failed', {
+      symbol,
+      normalized,
+      message: error instanceof Error ? error.message : 'unknown error',
+    });
     return null;
   } finally {
     clearTimeout(timeout);

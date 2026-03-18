@@ -77,6 +77,7 @@ export async function updateAssetMarketValue(assetId: string) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
   if (!asset) return null;
 
+  console.log('Pricing asset:', asset.symbol);
   console.log('Processing asset:', {
     symbol: asset.symbol,
     type: asset.assetType,
@@ -84,28 +85,40 @@ export async function updateAssetMarketValue(assetId: string) {
   });
 
   const valuation = await valuateAsset(asset);
-  if (!valuation) {
-    throw new Error(`No valuation available for ${asset.symbol}`);
+  if (!valuation.success && valuation.marketPriceUsd === null) {
+    console.warn('No valuation available', { assetId: asset.id, symbol: asset.symbol, reason: valuation.reason });
+    return prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        marketPriceUsd: asset.marketPriceUsd,
+        marketPrice: asset.marketPrice,
+        marketValue: valuation.marketValue,
+        marketValueUsd: valuation.marketValueUsd,
+        lastPriceUpdate: valuation.timestamp,
+      },
+    });
   }
 
-  await prisma.priceSnapshot.create({
-    data: {
-      symbol: asset.symbol.toUpperCase(),
-      price: valuation.marketPriceUsd,
-      currency: 'USD',
-      source: valuation.source,
-      timestamp: valuation.timestamp,
-    },
-  });
+  if (valuation.marketPriceUsd !== null) {
+    await prisma.priceSnapshot.create({
+      data: {
+        symbol: asset.symbol.toUpperCase(),
+        price: valuation.marketPriceUsd,
+        currency: 'USD',
+        source: valuation.source,
+        timestamp: valuation.timestamp,
+      },
+    });
+  }
 
   return prisma.asset.update({
     where: { id: asset.id },
     data: {
-      marketPriceUsd: valuation.marketPriceUsd,
-      marketPrice: valuation.marketPrice,
+      marketPriceUsd: valuation.marketPriceUsd ?? asset.marketPriceUsd,
+      marketPrice: valuation.marketPrice ?? asset.marketPrice,
       marketValue: valuation.marketValue,
       marketValueUsd: valuation.marketValueUsd,
-      lastPriceUpdate: new Date(),
+      lastPriceUpdate: valuation.timestamp,
     },
   });
 }

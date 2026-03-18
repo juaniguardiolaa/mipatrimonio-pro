@@ -24,7 +24,10 @@ export async function getDollarRates(): Promise<FxQuote[]> {
 
   try {
     const res = await fetch(endpoint, { cache: 'no-store', signal: controller.signal });
-    if (!res.ok) throw new Error(`FX API ${res.status}`);
+    if (!res.ok) {
+      console.error('FX API error', res.status);
+      return [];
+    }
     const data = await res.json() as Array<{ casa: string; venta: number }>;
 
     const map: Record<string, FxQuote['symbol']> = {
@@ -42,6 +45,9 @@ export async function getDollarRates(): Promise<FxQuote[]> {
         source: 'DOLARAPI',
         timestamp: new Date(),
       }));
+  } catch (error) {
+    console.error('FX provider failed', error);
+    return [];
   } finally {
     clearTimeout(timeout);
   }

@@ -7,29 +7,41 @@ export type CryptoMarketQuote = {
 
 const BINANCE_TICKER_URL = 'https://api.binance.com/api/v3/ticker/price';
 
+export function normalizeCryptoSymbol(symbol: string) {
+  const normalized = symbol.toUpperCase();
+  if (normalized.endsWith('USDT')) return normalized;
+  return `${normalized}USDT`;
+}
+
 export async function getCryptoPrice(symbol: string): Promise<CryptoMarketQuote | null> {
-  const normalized = symbol.toUpperCase().endsWith('USDT') ? symbol.toUpperCase() : `${symbol.toUpperCase()}USDT`;
-  console.log('Using Binance symbol:', normalized);
+  const normalized = normalizeCryptoSymbol(symbol);
+  console.log('Pricing asset:', symbol);
+  console.log('Normalized:', normalized);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
 
   try {
-    const response = await fetch(`${BINANCE_TICKER_URL}?symbol=${normalized}`, {
+    const url = `${BINANCE_TICKER_URL}?symbol=${normalized}`;
+    const response = await fetch(url, {
       cache: 'no-store',
       signal: controller.signal,
     });
 
     if (!response.ok) {
-      throw new Error(`Binance API ${response.status} for ${normalized}`);
+      console.error('Binance HTTP error', response.status);
+      return null;
     }
 
     const data = await response.json() as { symbol?: string; price?: string };
-    const priceUsd = parseFloat(data.price ?? 'NaN');
-    console.log('Price USD:', priceUsd);
+    console.log('Binance API response:', data);
 
-    if (priceUsd === null || priceUsd === undefined || Number.isNaN(priceUsd)) {
-      throw new Error(`Invalid price for ${symbol}`);
+    const priceUsd = parseFloat(data.price ?? 'NaN');
+    console.log('Price result:', priceUsd);
+
+    if (!priceUsd || Number.isNaN(priceUsd)) {
+      console.error('Invalid Binance response', data);
+      return null;
     }
 
     return {

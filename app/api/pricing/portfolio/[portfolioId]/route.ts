@@ -56,7 +56,22 @@ export async function GET(_: Request, { params }: { params: { portfolioId: strin
       assetsCount: assets.length,
     });
 
-    await Promise.all(assets.map((asset) => updateAssetMarketValue(asset.id)));
+    const pricingResults = await Promise.allSettled(assets.map((asset) => updateAssetMarketValue(asset.id)));
+    const successfulUpdates = pricingResults
+      .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof updateAssetMarketValue>>> => result.status === 'fulfilled')
+      .map((result) => result.value)
+      .filter(Boolean);
+
+    const failedUpdates = pricingResults
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+
+    if (failedUpdates.length > 0) {
+      console.warn('[pricing.portfolio] partial pricing failure', {
+        requestedPortfolioId,
+        failedUpdates: failedUpdates.length,
+        successfulUpdates: successfulUpdates.length,
+      });
+    }
 
     const updatedPortfolioIds = [...new Set(assets.map((asset) => asset.portfolioId))];
     for (const portfolioId of updatedPortfolioIds) {
@@ -100,6 +115,10 @@ export async function GET(_: Request, { params }: { params: { portfolioId: strin
       message: error instanceof Error ? error.message : 'unknown error',
       stack: error instanceof Error ? error.stack : null,
     });
-    return NextResponse.json({ ok: false, message: 'No se pudo obtener portfolio' }, { status: 500 });
+    return NextResponse.json({
+      ok: true,
+      warning: 'partial data',
+      positions: [],
+    });
   }
 }
