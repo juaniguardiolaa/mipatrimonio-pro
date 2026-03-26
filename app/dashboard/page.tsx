@@ -12,6 +12,17 @@ import { CashflowChart } from '@/components/dashboard/charts/CashflowChart';
 import { MoversTable } from '@/components/dashboard/tables/MoversTable';
 import { Card } from '@/components/ui/Card';
 
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span className="group relative ml-1 inline-flex cursor-help items-center text-slate-400" aria-label={text}>
+      ℹ️
+      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-64 -translate-x-1/2 rounded-md border border-slate-700 bg-slate-900 p-2 text-[11px] normal-case text-slate-200 shadow-lg group-hover:block">
+        {text}
+      </span>
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'ARS'>('USD');
   const insightsLayer = useFinancialInsights();
@@ -94,12 +105,20 @@ export default function DashboardPage() {
           subvalue={`USD ${formatCurrency(dashboard.cash.usd, 'USD')} · ARS ${formatCurrency(dashboard.cash.ars, 'ARS')}`}
         />
         <KPIcard
-          title="Savings Rate"
+          title={(
+            <span>
+              Savings Rate
+              <InfoHint text="Percentage of income that remains after expenses." />
+            </span>
+          )}
           value={formatPercent(dashboard.cashflow.savingsRate * 100)}
           subvalue={`Income ${formatCurrency(dashboard.cashflow.totalIncome, 'USD')} · Expenses ${formatCurrency(dashboard.cashflow.totalExpenses, 'USD')}`}
         />
         <Card className="rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Health Score</p>
+          <p className="text-xs uppercase tracking-wide text-gray-400">
+            Health Score
+            <InfoHint text="Calculated using savings rate, expense ratio, diversification, and cash position, with hard caps for critical risk conditions." />
+          </p>
           <p className="mt-2 text-4xl font-semibold text-white">{insightsLayer.healthScore}</p>
           <p className={`mt-1 text-sm font-medium ${healthLabel.className}`}>{healthLabel.text}</p>
         </Card>
@@ -118,15 +137,29 @@ export default function DashboardPage() {
         </div>
 
         <Card className="xl:col-span-2 rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
-          <p className="text-sm font-semibold text-white">Insights</p>
-          <ul className="mt-3 space-y-2 text-sm text-gray-300">
-            {insightsLayer.insights.map((insight) => (
-              <li key={insight.id} className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
-                <p className="font-medium text-white">{insight.title}</p>
-                <p className="mt-1 text-gray-400">{insight.description}</p>
-              </li>
-            ))}
-          </ul>
+          <p className="text-sm font-semibold text-white">
+            Insights
+            <InfoHint text="Insights are ranked from snapshot history and current portfolio/cashflow risk signals." />
+          </p>
+          <div className="mt-3 space-y-3 text-sm text-gray-300">
+            {(['cashflow', 'investments', 'risk', 'general'] as const).map((category) => {
+              const rows = insightsLayer.insights.filter((insight) => insight.category === category);
+              if (rows.length === 0) return null;
+              return (
+                <div key={category}>
+                  <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">{category}</p>
+                  <ul className="space-y-2">
+                    {rows.map((insight) => (
+                      <li key={insight.id} className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
+                        <p className="font-medium text-white">{insight.title}</p>
+                        <p className="mt-1 text-gray-400">{insight.description}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
         </Card>
 
         <Card className="rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
@@ -146,7 +179,10 @@ export default function DashboardPage() {
         </Card>
 
         <Card className="xl:col-span-3 rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
-          <p className="text-sm font-semibold text-white">Recommendations</p>
+          <p className="text-sm font-semibold text-white">
+            Recommendations
+            <InfoHint text="Recommendations are prioritized by estimated impact using your real metrics and simulated improvements." />
+          </p>
           <ul className="mt-3 space-y-2 text-sm text-gray-300">
             {insightsLayer.recommendations.map((recommendation) => (
               <li key={recommendation.id} className="rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-3">
