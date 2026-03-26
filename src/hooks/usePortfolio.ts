@@ -25,9 +25,11 @@ export function usePortfolio(assets: AssetInput[]) {
     const priceData = prices[asset.id];
     const marketPriceUsdRaw = priceData?.price ?? null;
     const isRealPrice = priceData?.source === 'market';
+    const effectivePriceUsd = isRealPrice ? marketPriceUsdRaw : null;
 
     let marketPriceUsd: number | null = marketPriceUsdRaw;
     let marketPriceArs: number | null = null;
+    let effectivePriceArs: number | null = null;
 
     if (asset.assetType === 'CASH') {
       if (asset.currency === 'ARS') {
@@ -39,13 +41,28 @@ export function usePortfolio(assets: AssetInput[]) {
       }
     } else if (asset.assetType === 'CEDEAR') {
       const ratio = asset.cedearRatio && asset.cedearRatio > 0 ? asset.cedearRatio : 1;
-      marketPriceArs = ccl && marketPriceUsd !== null ? (marketPriceUsd / ratio) * ccl : null;
+      if (!effectivePriceUsd || !ccl) {
+        console.warn('[cedear:missing-data]', { symbol: asset.symbol });
+        marketPriceArs = null;
+      } else {
+        marketPriceArs = (effectivePriceUsd / ratio) * ccl;
+      }
     } else {
       marketPriceArs = ccl && marketPriceUsd !== null ? marketPriceUsd * ccl : null;
     }
 
-    const marketValueUsd = marketPriceUsd !== null ? marketPriceUsd * asset.quantity : null;
-    const marketValueArs = marketPriceArs !== null ? marketPriceArs * asset.quantity : null;
+    effectivePriceArs = ccl && effectivePriceUsd !== null ? effectivePriceUsd * ccl : null;
+    const pnlEligiblePriceUsd = asset.assetType === 'CASH' ? marketPriceUsd : effectivePriceUsd;
+    const pnlEligiblePriceArs = asset.assetType === 'CEDEAR'
+      ? marketPriceArs
+      : asset.assetType === 'CASH'
+        ? marketPriceArs
+        : effectivePriceArs;
+
+    const marketValueUsd = pnlEligiblePriceUsd !== null ? pnlEligiblePriceUsd * asset.quantity : null;
+    const marketValueArs = asset.assetType === 'CEDEAR'
+      ? marketPriceArs !== null ? marketPriceArs * asset.quantity : null
+      : pnlEligiblePriceArs !== null ? pnlEligiblePriceArs * asset.quantity : null;
 
     const costBasisArs = asset.currency === 'ARS' ? asset.purchasePrice * asset.quantity : ccl ? asset.purchasePrice * asset.quantity * ccl : null;
     const costBasisUsd = asset.currency === 'USD' ? asset.purchasePrice * asset.quantity : ccl ? (asset.purchasePrice * asset.quantity) / ccl : null;

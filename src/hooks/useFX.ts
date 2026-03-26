@@ -4,6 +4,9 @@ type FXState = {
   ccl: number | null;
 };
 
+let fxCache: { value: number | null; ts: number } | null = null;
+const FX_TTL = 60_000;
+
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 3000): Promise<T | null> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -35,27 +38,27 @@ async function fetchCclRate(): Promise<number | null> {
 
 export function useFX(): FXState {
   const [state, setState] = useState<FXState>({ ccl: null });
-  const cacheRef = useRef<{ ccl: number | null; ts: number } | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     const load = async () => {
       const now = Date.now();
-      if (cacheRef.current && now - cacheRef.current.ts < 60_000) {
-        if (mounted) setState({ ccl: cacheRef.current.ccl });
+      if (fxCache && now - fxCache.ts < FX_TTL) {
+        if (mountedRef.current) setState({ ccl: fxCache.value });
         return;
       }
 
       const ccl = await fetchCclRate();
-      cacheRef.current = { ccl, ts: Date.now() };
-      if (mounted) setState({ ccl });
+      fxCache = { value: ccl, ts: Date.now() };
+      if (mountedRef.current) setState({ ccl });
     };
 
     load().catch(() => undefined);
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
     };
   }, []);
 

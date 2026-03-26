@@ -13,8 +13,12 @@ export type PriceResult = {
 };
 
 function normalizeCryptoSymbol(symbol: string) {
-  const upper = symbol.toUpperCase();
+  const upper = normalizeSymbol(symbol);
   return upper.endsWith('USDT') ? upper : `${upper}USDT`;
+}
+
+function normalizeSymbol(symbol: string) {
+  return symbol.trim().toUpperCase();
 }
 
 function normalizeCryptoBaseSymbol(symbol: string) {
@@ -37,7 +41,7 @@ async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 3000): Promise<T
 }
 
 async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<string, number | null>> {
-  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => symbol.toUpperCase())));
+  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol))));
   if (uniqueSymbols.length === 0) return {};
 
   const explicitIdMap: Record<string, string> = {
@@ -86,7 +90,7 @@ async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<stri
 }
 
 async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
-  const normalized = symbol.toUpperCase().trim();
+  const normalized = normalizeSymbol(symbol);
   if (!normalized) return null;
 
   try {
@@ -106,7 +110,7 @@ async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
     console.warn('[pricing:failed]', {
       symbol: normalized,
       assetType: 'STOCK',
-      reason: error instanceof Error ? error.message : 'yahoo_error',
+      provider: 'yahoo',
     });
     return null;
   }
@@ -115,6 +119,7 @@ async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
 export function usePrices(assets: AssetForPricing[]) {
   const [prices, setPrices] = useState<Record<string, PriceResult>>({});
   const cacheRef = useRef<Record<string, { price: number | null; ts: number }>>({});
+  const isFetchingRef = useRef(false);
 
   useEffect(() => {
     if (!assets || assets.length === 0) {
@@ -126,80 +131,88 @@ export function usePrices(assets: AssetForPricing[]) {
     let intervalId: number | null = null;
 
     const fetchPrices = async () => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+
       const newPrices: Record<string, PriceResult> = {};
       const now = Date.now();
       const BATCH_SIZE = 3;
 
-      for (let i = 0; i < assets.length; i += BATCH_SIZE) {
-        const batch = assets.slice(i, i + BATCH_SIZE);
+      try {
+        for (let i = 0; i < assets.length; i += BATCH_SIZE) {
+          const batch = assets.slice(i, i + BATCH_SIZE);
 
-        const cryptoAssets = batch.filter((asset) => asset.assetType === 'CRYPTO');
-        const cryptoPricesBySymbol = await fetchCryptoBatchPricesUsd(cryptoAssets.map((asset) => asset.symbol));
+          const cryptoAssets = batch.filter((asset) => asset.assetType === 'CRYPTO');
+          const cryptoPricesBySymbol = await fetchCryptoBatchPricesUsd(cryptoAssets.map((asset) => asset.symbol));
 
-        await Promise.all(
-          batch.map(async (asset) => {
-            try {
-              let price: number | null = null;
-              const cacheKey = `${asset.assetType}:${asset.symbol.toUpperCase()}`;
-              const cached = cacheRef.current[cacheKey];
+          await Promise.all(
+            batch.map(async (asset) => {
+              try {
+                let price: number | null = null;
+                const normalizedSymbol = normalizeSymbol(asset.symbol);
+                const cacheKey = `${asset.assetType}:${normalizedSymbol}`;
+                const cached = cacheRef.current[cacheKey];
 
-              if (cached && now - cached.ts < 60_000) {
-                price = cached.price;
-              } else {
-                if (asset.assetType === 'CRYPTO') {
-                  price = cryptoPricesBySymbol[asset.symbol.toUpperCase()] ?? null;
+                if (cached && now - cached.ts < 60_000) {
+                  price = cached.price;
+                } else {
+                  if (asset.assetType === 'CRYPTO') {
+                    price = cryptoPricesBySymbol[normalizedSymbol] ?? null;
+                  }
+
+                  if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
+                    price = await fetchStockPriceUsd(normalizedSymbol);
+                  }
+
+                  if (asset.assetType === 'CEDEAR') {
+                    // future: apply FX * ratio
+                  }
+
+                  cacheRef.current[cacheKey] = { price, ts: Date.now() };
                 }
 
-                if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
-                  price = await fetchStockPriceUsd(asset.symbol);
+                if (price === null) {
+                  console.warn('[pricing:failed]', {
+                    symbol: normalizedSymbol,
+                    assetType: asset.assetType,
+                    provider: asset.assetType === 'CRYPTO' ? 'coingecko' : 'yahoo',
+                  });
                 }
 
-                if (asset.assetType === 'CEDEAR') {
-                  // future: apply FX * ratio
+                if (price && !Number.isNaN(price)) {
+                  newPrices[asset.id] = { price, source: 'market' };
+                } else if (asset.purchasePrice) {
+                  newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
+                  console.warn('[pricing:fallback-used]', { symbol: normalizedSymbol, assetType: asset.assetType });
+                } else {
+                  newPrices[asset.id] = { price: null, source: 'fallback' };
+                  console.warn('[pricing:fallback-used]', { symbol: normalizedSymbol, assetType: asset.assetType });
                 }
 
-                cacheRef.current[cacheKey] = { price, ts: Date.now() };
-              }
-
-              if (price === null) {
+                console.log('[pricing]', { symbol: normalizedSymbol, type: asset.assetType, price });
+              } catch {
                 console.warn('[pricing:failed]', {
-                  symbol: asset.symbol,
+                  symbol: normalizeSymbol(asset.symbol),
                   assetType: asset.assetType,
-                  reason: 'provider_unavailable',
+                  provider: asset.assetType === 'CRYPTO' ? 'coingecko' : 'yahoo',
                 });
+
+                if (asset.purchasePrice) {
+                  newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
+                } else {
+                  newPrices[asset.id] = { price: null, source: 'fallback' };
+                }
+
+                console.warn('[pricing:fallback-used]', { symbol: normalizeSymbol(asset.symbol), assetType: asset.assetType });
               }
+            }),
+          );
+        }
 
-              if (price && !Number.isNaN(price)) {
-                newPrices[asset.id] = { price, source: 'market' };
-              } else if (asset.purchasePrice) {
-                newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
-                console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
-              } else {
-                newPrices[asset.id] = { price: null, source: 'fallback' };
-                console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
-              }
-
-              console.log('[pricing]', { symbol: asset.symbol, type: asset.assetType, price });
-            } catch (error) {
-              console.warn('[pricing:failed]', {
-                symbol: asset.symbol,
-                assetType: asset.assetType,
-                reason: error instanceof Error ? error.message : 'unknown_error',
-              });
-
-              if (asset.purchasePrice) {
-                newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
-              } else {
-                newPrices[asset.id] = { price: null, source: 'fallback' };
-              }
-
-              console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
-            }
-          }),
-        );
+        if (isMounted) setPrices(newPrices);
+      } finally {
+        isFetchingRef.current = false;
       }
-
-      if (isMounted) setPrices(newPrices);
     };
 
     fetchPrices().catch(() => undefined);
