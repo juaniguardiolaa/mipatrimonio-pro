@@ -1,10 +1,10 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, ReactNode } from 'react';
 import { Card } from '@/components/ui/Card';
 
 type KPIcardProps = {
-  title: string;
+  title: ReactNode;
   value: string;
   subvalue?: string;
   trend?: string;
