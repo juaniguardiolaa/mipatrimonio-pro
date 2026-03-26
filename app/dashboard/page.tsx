@@ -4,13 +4,14 @@ import { useMemo, useState } from 'react';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import { Select } from '@/components/ui/Select';
-import { useFinancialInsights } from '@/src/hooks/useFinancialInsights';
+import { useSimulation } from '@/src/hooks/useSimulation';
 import { KPIcard } from '@/components/dashboard/KPIcard';
 import { IncomeExpensesChart } from '@/components/dashboard/charts/IncomeExpensesChart';
 import { AllocationPie } from '@/components/dashboard/charts/AllocationPie';
 import { CashflowChart } from '@/components/dashboard/charts/CashflowChart';
 import { MoversTable } from '@/components/dashboard/tables/MoversTable';
 import { Card } from '@/components/ui/Card';
+import { SimulationChart } from '@/components/dashboard/charts/SimulationChart';
 
 function InfoHint({ text }: { text: string }) {
   return (
@@ -25,8 +26,17 @@ function InfoHint({ text }: { text: string }) {
 
 export default function DashboardPage() {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'ARS'>('USD');
-  const insightsLayer = useFinancialInsights();
-  const dashboard = insightsLayer.dashboard;
+  const [monthlySavingsInput, setMonthlySavingsInput] = useState<string>('');
+  const [expenseReductionInput, setExpenseReductionInput] = useState<string>('0');
+  const [goalInput, setGoalInput] = useState<string>('');
+
+  const simulationLayer = useSimulation({
+    monthlySavings: monthlySavingsInput === '' ? undefined : Number(monthlySavingsInput),
+    expenseReductionPercent: Number(expenseReductionInput || 0),
+    targetAmountUsd: goalInput === '' ? undefined : Number(goalInput),
+  });
+  const insightsLayer = simulationLayer.insights;
+  const dashboard = simulationLayer.dashboard;
 
   const incomeExpensesData = useMemo(() => dashboard.cashflow.monthly.map((row) => ({
     month: row.month,
@@ -191,6 +201,78 @@ export default function DashboardPage() {
               </li>
             ))}
           </ul>
+        </Card>
+
+        <Card className="xl:col-span-3 rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-white">
+            Simulation Panel
+            <InfoHint text="Projection applies weighted expected return, inflation-adjusted growth, and your what-if inputs." />
+          </p>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <label className="text-xs text-slate-300">
+              Monthly savings (USD)
+              <input
+                type="number"
+                min="0"
+                value={monthlySavingsInput}
+                onChange={(e) => setMonthlySavingsInput(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-white"
+                placeholder="Auto from cashflow"
+              />
+            </label>
+            <label className="text-xs text-slate-300">
+              Expense reduction %
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={expenseReductionInput}
+                onChange={(e) => setExpenseReductionInput(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-white"
+              />
+            </label>
+            <label className="text-xs text-slate-300">
+              Target goal (USD)
+              <input
+                type="number"
+                min="0"
+                value={goalInput}
+                onChange={(e) => setGoalInput(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-white"
+                placeholder="Optional"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-slate-700 bg-slate-900/40 p-3 text-sm text-slate-200">
+              <p>Expected annual return: {formatPercent(simulationLayer.expectedReturn * 100)}</p>
+              <p>Real annual return: {formatPercent(simulationLayer.realReturn * 100)}</p>
+              <p>Projected net worth: {formatCurrency(simulationLayer.projectedNetWorth.usd, 'USD')}</p>
+            </div>
+            <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm text-emerald-100">
+              <p>
+                {simulationLayer.optimizedScenario.monthsToGoal
+                  ? `With this strategy: goal in ${simulationLayer.optimizedScenario.yearsToGoal} years`
+                  : 'With this strategy: goal not reached in selected horizon'}
+              </p>
+              <p>
+                {simulationLayer.baseScenario.monthsToGoal
+                  ? `Base scenario reaches goal in ${simulationLayer.baseScenario.yearsToGoal} years`
+                  : 'Base scenario does not reach goal in selected horizon'}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <SimulationChart
+              data={simulationLayer.optimizedScenario.simulation.map((row, index) => ({
+                month: row.month,
+                baseUsd: simulationLayer.baseScenario.simulation[index]?.netWorthUsd ?? row.netWorthUsd,
+                optimizedUsd: row.netWorthUsd,
+              }))}
+            />
+          </div>
         </Card>
       </div>
     </div>
