@@ -103,6 +103,11 @@ export function useDashboard() {
 
     const cashUsd = usdAccountsTotal + (ccl && ccl > 0 ? arsAccountsTotal / ccl : 0);
     const cashArs = arsAccountsTotal + (ccl && ccl > 0 ? usdAccountsTotal * ccl : 0);
+    const fxRateAvailable = Boolean(ccl && ccl > 0);
+    const requiresFx = arsAccountsTotal > 0 || assets.some((asset) => {
+      const currency = (asset.currency || '').toUpperCase();
+      return currency === 'ARS' || asset.assetType === 'CEDEAR';
+    });
 
     console.log('[dashboard:cash]', {
       usdAccountsTotal: roundMoney(usdAccountsTotal),
@@ -188,6 +193,10 @@ export function useDashboard() {
       allocation: { byAsset, byType },
       movers: { gainers, losers },
       portfolio,
+      fx: {
+        rateAvailable: fxRateAvailable,
+        requiresConversion: requiresFx,
+      },
       loading,
     };
 
@@ -198,5 +207,5 @@ export function useDashboard() {
     });
 
     return result;
-  }, [accounts, ccl, expenses, income, loading, portfolio]);
+  }, [accounts, assets, ccl, expenses, income, loading, portfolio]);
 }

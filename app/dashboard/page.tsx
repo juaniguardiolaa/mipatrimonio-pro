@@ -4,16 +4,29 @@ import { useMemo, useState } from 'react';
 import { SectionHeader } from '@/components/ui/SectionHeader';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import { Select } from '@/components/ui/Select';
-import { useDashboard } from '@/src/hooks/useDashboard';
+import { useFinancialInsights } from '@/src/hooks/useFinancialInsights';
 import { KPIcard } from '@/components/dashboard/KPIcard';
 import { IncomeExpensesChart } from '@/components/dashboard/charts/IncomeExpensesChart';
 import { AllocationPie } from '@/components/dashboard/charts/AllocationPie';
 import { CashflowChart } from '@/components/dashboard/charts/CashflowChart';
 import { MoversTable } from '@/components/dashboard/tables/MoversTable';
+import { Card } from '@/components/ui/Card';
+
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span className="group relative ml-1 inline-flex cursor-help items-center text-slate-400" aria-label={text}>
+      ℹ️
+      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden w-64 -translate-x-1/2 rounded-md border border-slate-700 bg-slate-900 p-2 text-[11px] normal-case text-slate-200 shadow-lg group-hover:block">
+        {text}
+      </span>
+    </span>
+  );
+}
 
 export default function DashboardPage() {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'ARS'>('USD');
-  const dashboard = useDashboard();
+  const insightsLayer = useFinancialInsights();
+  const dashboard = insightsLayer.dashboard;
 
   const incomeExpensesData = useMemo(() => dashboard.cashflow.monthly.map((row) => ({
     month: row.month,
@@ -57,6 +70,14 @@ export default function DashboardPage() {
     return <div className="p-6 text-sm text-gray-400">Loading dashboard…</div>;
   }
 
+  const healthLabel = insightsLayer.healthScore >= 80
+    ? { text: 'Excellent', className: 'text-emerald-400' }
+    : insightsLayer.healthScore >= 60
+      ? { text: 'Good', className: 'text-lime-300' }
+      : insightsLayer.healthScore >= 40
+        ? { text: 'Average', className: 'text-amber-300' }
+        : { text: 'Poor', className: 'text-rose-400' };
+
   return (
     <div className="min-h-screen space-y-6 bg-[#0B1220] p-4 text-white md:p-6">
       <SectionHeader
@@ -84,10 +105,23 @@ export default function DashboardPage() {
           subvalue={`USD ${formatCurrency(dashboard.cash.usd, 'USD')} · ARS ${formatCurrency(dashboard.cash.ars, 'ARS')}`}
         />
         <KPIcard
-          title="Savings Rate"
+          title={(
+            <span>
+              Savings Rate
+              <InfoHint text="Percentage of income that remains after expenses." />
+            </span>
+          )}
           value={formatPercent(dashboard.cashflow.savingsRate * 100)}
           subvalue={`Income ${formatCurrency(dashboard.cashflow.totalIncome, 'USD')} · Expenses ${formatCurrency(dashboard.cashflow.totalExpenses, 'USD')}`}
         />
+        <Card className="rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-gray-400">
+            Health Score
+            <InfoHint text="Calculated using savings rate, expense ratio, diversification, and cash position, with hard caps for critical risk conditions." />
+          </p>
+          <p className="mt-2 text-4xl font-semibold text-white">{insightsLayer.healthScore}</p>
+          <p className={`mt-1 text-sm font-medium ${healthLabel.className}`}>{healthLabel.text}</p>
+        </Card>
 
         <div className="xl:col-span-2">
           <IncomeExpensesChart data={incomeExpensesData} />
@@ -101,6 +135,63 @@ export default function DashboardPage() {
         <div className="xl:col-span-3">
           <CashflowChart data={cashflowNetData} />
         </div>
+
+        <Card className="xl:col-span-2 rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-white">
+            Insights
+            <InfoHint text="Insights are ranked from snapshot history and current portfolio/cashflow risk signals." />
+          </p>
+          <div className="mt-3 space-y-3 text-sm text-gray-300">
+            {(['cashflow', 'investments', 'risk', 'general'] as const).map((category) => {
+              const rows = insightsLayer.insights.filter((insight) => insight.category === category);
+              if (rows.length === 0) return null;
+              return (
+                <div key={category}>
+                  <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">{category}</p>
+                  <ul className="space-y-2">
+                    {rows.map((insight) => (
+                      <li key={insight.id} className="rounded-lg border border-gray-700/70 bg-gray-900/40 p-3">
+                        <p className="font-medium text-white">{insight.title}</p>
+                        <p className="mt-1 text-gray-400">{insight.description}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-white">Alerts</p>
+          <ul className="mt-3 space-y-2 text-sm text-gray-300">
+            {insightsLayer.alerts.length === 0 ? <li className="text-gray-400">No alerts detected.</li> : null}
+            {insightsLayer.alerts.map((alert) => (
+              <li
+                key={alert.id}
+                className={`rounded-lg border p-3 ${alert.severity === 'high' ? 'border-rose-500/60 bg-rose-950/40 text-rose-100' : alert.severity === 'medium' ? 'border-amber-500/50 bg-amber-950/20' : 'border-sky-500/40 bg-sky-950/20'}`}
+              >
+                <p className="font-medium capitalize">{alert.severity} alert</p>
+                <p className="mt-1">{alert.message}</p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card className="xl:col-span-3 rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-white">
+            Recommendations
+            <InfoHint text="Recommendations are prioritized by estimated impact using your real metrics and simulated improvements." />
+          </p>
+          <ul className="mt-3 space-y-2 text-sm text-gray-300">
+            {insightsLayer.recommendations.map((recommendation) => (
+              <li key={recommendation.id} className="rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-3">
+                <p className="font-medium text-emerald-200">{recommendation.action}</p>
+                <p className="mt-1 text-gray-300">{recommendation.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </Card>
       </div>
     </div>
   );
