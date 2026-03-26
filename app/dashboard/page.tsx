@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import { Landmark, TrendingUp, Wallet, WalletCards } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { usePortfolio } from '@/src/hooks/usePortfolio';
+import { isValidAsset, usePortfolio } from '@/src/hooks/usePortfolio';
 
 type Position = {
   id: string;
@@ -22,8 +22,10 @@ type Position = {
   purchasePrice: number;
   currency: string;
   marketValue: number;
-  marketValueUsd: number;
+  marketValueArs: number | null;
+  marketValueUsd: number | null;
   profitLoss: number;
+  profitLossArs: number | null;
   roiPercent: number;
   isRealPrice: boolean;
 };
@@ -51,21 +53,21 @@ export default function DashboardPage() {
     setAssets(data.assets || []);
   }, []);
 
-  const positions = usePortfolio(assets);
+  const { positions, totals: portfolioTotals } = usePortfolio(assets);
 
   useEffect(() => {
     fetchAssets().catch(() => undefined);
   }, [fetchAssets]);
 
   useEffect(() => {
-    const ars = positions.reduce((sum, p) => sum + p.marketValue, 0);
-    const usd = positions.reduce((sum, p) => sum + p.marketValueUsd, 0);
+    const ars = portfolioTotals.totalArs;
+    const usd = portfolioTotals.totalUsd;
     setNetWorthArs(ars);
     setNetWorthUsd(usd);
-  }, [positions]);
+  }, [portfolioTotals.totalArs, portfolioTotals.totalUsd]);
 
   const totals = useMemo(() => {
-    return positions.reduce((acc, p) => {
+    return positions.filter((position) => isValidAsset(position)).reduce((acc, p) => {
       acc.pnl += p.profitLoss;
       return acc;
     }, { pnl: 0 });
@@ -73,14 +75,16 @@ export default function DashboardPage() {
 
   const allocationByType = useMemo(() => {
     const map = new Map<string, number>();
-    positions.forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
+    positions.filter((position) => isValidAsset(position))
+      .forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
     const palette = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4'];
     return Array.from(map.entries()).map(([name, value], idx) => ({ name, value, color: palette[idx % palette.length] }));
   }, [positions]);
 
   const allocationByCurrency = useMemo(() => {
-    const ars = positions.reduce((sum, p) => sum + p.marketValue, 0);
-    const usdArs = positions.reduce((sum, p) => sum + p.marketValueUsd, 0);
+    const validPositions = positions.filter((position) => isValidAsset(position));
+    const ars = validPositions.reduce((sum, p) => sum + (p.marketValueArs ?? 0), 0);
+    const usdArs = validPositions.reduce((sum, p) => sum + (p.marketValueUsd ?? 0), 0);
     return [
       { name: 'ARS', value: ars, color: '#2563EB' },
       { name: 'USD', value: usdArs * 1200, color: '#10B981' },
@@ -115,10 +119,10 @@ export default function DashboardPage() {
         columns={[
           { key: 'symbol', label: 'Ticker', sortable: true },
           { key: 'assetType', label: 'Tipo', sortable: true, render: (row) => <Badge variant="primary">{row.assetType}</Badge> },
-          { key: 'marketValue', label: 'Valor ARS', sortable: true, render: (row) => formatCurrency(row.marketValue, 'ARS') },
-          { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => formatCurrency(row.marketValueUsd, 'USD') },
+          { key: 'marketValueArs', label: 'Valor ARS', sortable: true, render: (row) => row.marketValueArs === null ? '—' : formatCurrency(row.marketValueArs, 'ARS') },
+          { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => row.marketValueUsd === null ? '—' : formatCurrency(row.marketValueUsd, 'USD') },
           { key: 'isRealPrice', label: 'Estado precio', sortable: true, render: (row) => row.isRealPrice ? <Badge variant="success">Market</Badge> : <Badge variant="warning">⚠ Fallback</Badge> },
-          { key: 'profitLoss', label: 'Ganancia', sortable: true, render: (row) => <Badge variant={row.profitLoss >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLoss, 'ARS')}</Badge> },
+          { key: 'profitLossArs', label: 'Ganancia ARS', sortable: true, render: (row) => row.profitLossArs === null ? '—' : <Badge variant={row.profitLossArs >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLossArs, 'ARS')}</Badge> },
           { key: 'roiPercent', label: 'ROI', sortable: true, render: (row) => <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>{row.roiPercent.toFixed(2)}%</Badge> },
         ]}
         rows={positions}

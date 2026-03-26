@@ -12,7 +12,7 @@ import { formatCurrency, formatPercent } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { usePortfolio } from '@/src/hooks/usePortfolio';
+import { isValidAsset, usePortfolio } from '@/src/hooks/usePortfolio';
 
 type Position = {
   id: string;
@@ -25,9 +25,12 @@ type Position = {
   currentPrice: number | null;
   currentPriceUsd: number | null;
   costBasis: number;
+  costBasisArs: number | null;
   marketValue: number;
-  marketValueUsd: number;
+  marketValueArs: number | null;
+  marketValueUsd: number | null;
   profitLoss: number;
+  profitLossArs: number | null;
   roiPercent: number;
   isRealPrice: boolean;
 };
@@ -65,7 +68,7 @@ export default function InvestmentsPage() {
     loadData().catch(() => undefined);
   }, []);
 
-  const positions = usePortfolio(assets);
+  const { positions, totals: portfolioTotals } = usePortfolio(assets);
 
   async function onCreateAsset(event: FormEvent) {
     event.preventDefault();
@@ -91,11 +94,14 @@ export default function InvestmentsPage() {
     await loadData();
   }
 
-  const totals = useMemo(() => positions.reduce((acc, row) => ({ invested: acc.invested + row.costBasis, current: acc.current + row.marketValue, currentUsd: acc.currentUsd + row.marketValueUsd, gain: acc.gain + row.profitLoss }), { invested: 0, current: 0, currentUsd: 0, gain: 0 }), [positions]);
+  const totals = useMemo(() => positions
+    .filter((position) => isValidAsset(position))
+    .reduce((acc, row) => ({ invested: acc.invested + (row.costBasisArs ?? 0), current: acc.current + (row.marketValueArs ?? 0), currentUsd: acc.currentUsd + (row.marketValueUsd ?? 0), gain: acc.gain + (row.profitLossArs ?? 0) }), { invested: 0, current: 0, currentUsd: 0, gain: 0 }), [positions]);
   const roi = totals.invested > 0 ? (totals.gain / totals.invested) * 100 : 0;
   const byType = useMemo(() => {
     const map = new Map<string, number>();
-    positions.forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
+    positions.filter((position) => isValidAsset(position))
+      .forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
     const palette = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#14B8A6'];
     return Array.from(map.entries()).map(([name, value], i) => ({ name, value, color: palette[i % palette.length] }));
   }, [positions]);
@@ -121,8 +127,8 @@ export default function InvestmentsPage() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard title="Valor invertido" value={totals.invested} trend={1.5} icon={CircleDollarSign} currency="ARS" />
-        <KpiCard title="Valor actual ARS" value={totals.current} trend={2.8} icon={Landmark} currency="ARS" />
-        <KpiCard title="Valor actual USD" value={totals.currentUsd} trend={2.8} icon={Landmark} currency="USD" />
+        <KpiCard title="Valor actual ARS" value={portfolioTotals.totalArs} trend={2.8} icon={Landmark} currency="ARS" />
+        <KpiCard title="Valor actual USD" value={portfolioTotals.totalUsd} trend={2.8} icon={Landmark} currency="USD" />
         <KpiCard title="Rendimiento %" value={roi} trend={roi} icon={Percent} currency="USD" />
       </div>
 
@@ -136,9 +142,9 @@ export default function InvestmentsPage() {
           { key: 'quantity', label: 'Cantidad', sortable: true },
           { key: 'currentPrice', label: 'Precio ARS', sortable: true, render: (row) => row.currentPrice === null ? '—' : row.isRealPrice ? formatCurrency(row.currentPrice, 'ARS') : `${formatCurrency(row.currentPrice, 'ARS')} ⚠` },
           { key: 'currentPriceUsd', label: 'Precio USD', sortable: true, render: (row) => row.currentPriceUsd === null ? '—' : row.isRealPrice ? formatCurrency(row.currentPriceUsd, 'USD') : `${formatCurrency(row.currentPriceUsd, 'USD')} ⚠ Precio no actualizado` },
-          { key: 'marketValue', label: 'Valor ARS', sortable: true, render: (row) => formatCurrency(row.marketValue, 'ARS') },
-          { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => formatCurrency(row.marketValueUsd, 'USD') },
-          { key: 'profitLoss', label: 'Ganancia', sortable: true, render: (row) => <Badge variant={row.profitLoss >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLoss, 'ARS')}</Badge> },
+          { key: 'marketValueArs', label: 'Valor ARS', sortable: true, render: (row) => row.marketValueArs === null ? '—' : formatCurrency(row.marketValueArs, 'ARS') },
+          { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => row.marketValueUsd === null ? '—' : formatCurrency(row.marketValueUsd, 'USD') },
+          { key: 'profitLossArs', label: 'Ganancia ARS', sortable: true, render: (row) => row.profitLossArs === null ? '—' : <Badge variant={row.profitLossArs >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLossArs, 'ARS')}</Badge> },
           { key: 'roiPercent', label: 'ROI', sortable: true, render: (row) => <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>{formatPercent(row.roiPercent)}</Badge> },
         ]}
         rows={positions}
