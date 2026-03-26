@@ -15,7 +15,9 @@ export function usePortfolio(assets: AssetInput[]) {
   const prices = usePrices(assets);
 
   return useMemo(() => assets.map((asset) => {
-    const marketPriceUsd = prices[asset.id] || 0;
+    const priceData = prices[asset.id];
+    const marketPriceUsd = priceData?.price ?? 0;
+    const isRealPrice = priceData?.source === 'market';
     const marketValueUsd = marketPriceUsd * asset.quantity;
     const marketPrice = marketPriceUsd;
     const marketValue = marketValueUsd;
@@ -35,6 +37,7 @@ export function usePortfolio(assets: AssetInput[]) {
       marketValueUsd,
       profitLoss,
       roiPercent,
+      isRealPrice,
       pnl: profitLoss,
       pnlPct: roiPercent,
     };

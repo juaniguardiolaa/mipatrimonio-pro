@@ -25,6 +25,7 @@ type Position = {
   marketValueUsd: number;
   profitLoss: number;
   roiPercent: number;
+  isRealPrice: boolean;
 };
 
 const usdTrend = [
@@ -116,6 +117,7 @@ export default function DashboardPage() {
           { key: 'assetType', label: 'Tipo', sortable: true, render: (row) => <Badge variant="primary">{row.assetType}</Badge> },
           { key: 'marketValue', label: 'Valor ARS', sortable: true, render: (row) => formatCurrency(row.marketValue, 'ARS') },
           { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => formatCurrency(row.marketValueUsd, 'USD') },
+          { key: 'isRealPrice', label: 'Estado precio', sortable: true, render: (row) => row.isRealPrice ? <Badge variant="success">Market</Badge> : <Badge variant="warning">⚠ Fallback</Badge> },
           { key: 'profitLoss', label: 'Ganancia', sortable: true, render: (row) => <Badge variant={row.profitLoss >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLoss, 'ARS')}</Badge> },
           { key: 'roiPercent', label: 'ROI', sortable: true, render: (row) => <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>{row.roiPercent.toFixed(2)}%</Badge> },
         ]}
