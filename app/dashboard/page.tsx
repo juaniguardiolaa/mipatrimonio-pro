@@ -257,6 +257,8 @@ export default function DashboardPage() {
                   {simulationLayer.conservativeYearsToGoal !== null ? simulationLayer.conservativeYearsToGoal : 'N/A'} years
                 </p>
               ) : null}
+              <p className="mt-2 text-xs text-slate-400">Optimistic assumes stronger market performance with the same strategy.</p>
+              <p className="text-xs text-slate-400">Conservative assumes lower returns and tougher market conditions.</p>
             </div>
             <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm text-emerald-100">
               <p>

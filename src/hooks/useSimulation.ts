@@ -10,6 +10,14 @@ const RETURNS: Record<string, number> = {
   CASH: 0.01,
 };
 
+const VOLATILITY: Record<string, number> = {
+  CRYPTO: 0.15,
+  STOCK: 0.08,
+  ETF: 0.08,
+  BOND: 0.03,
+  CASH: 0.002,
+};
+
 const DEFAULT_INFLATION = 0.03;
 
 type SimulationInput = {
@@ -67,6 +75,7 @@ function runScenario(options: {
   realReturn: number;
   targetAmountUsd?: number;
   variabilitySeed?: number;
+  annualVolatility: number;
 }) {
   const {
     months,
@@ -77,6 +86,7 @@ function runScenario(options: {
     realReturn,
     targetAmountUsd,
     variabilitySeed = 1,
+    annualVolatility,
   } = options;
 
   const now = new Date();
@@ -86,7 +96,7 @@ function runScenario(options: {
   const simulation: SimulationPoint[] = [];
 
   for (let index = 1; index <= months; index += 1) {
-    const annualJitter = (seededRandom((variabilitySeed * 997) + index) * 0.1) - 0.05;
+    const annualJitter = ((seededRandom((variabilitySeed * 997) + index) * 2) - 1) * annualVolatility;
     const jitteredRealAnnualReturn = realReturn + annualJitter;
     const monthlyRealReturn = (1 + jitteredRealAnnualReturn) ** (1 / 12) - 1;
     currentUsd = (currentUsd * (1 + monthlyRealReturn)) + monthlyContribution;
@@ -137,6 +147,11 @@ export function useSimulation(input: SimulationInput = {}) {
       const baseReturn = RETURNS[row.assetType.toUpperCase()] ?? 0.05;
       return acc + (share * baseReturn);
     }, 0);
+    const weightedAnnualVolatility = dashboard.allocation.byType.reduce((acc, row) => {
+      const share = safeDivide(row.valueUsd, dashboard.portfolio.totals.totalUsd);
+      const baseVol = VOLATILITY[row.assetType.toUpperCase()] ?? 0.06;
+      return acc + (share * baseVol);
+    }, 0) || 0.05;
 
     const expectedReturn = input.investmentReturnOverride ?? (weightedExpectedReturn || 0.05);
     const inflation = input.inflation ?? DEFAULT_INFLATION;
@@ -165,6 +180,7 @@ export function useSimulation(input: SimulationInput = {}) {
       realReturn,
       targetAmountUsd: input.targetAmountUsd,
       variabilitySeed: 11,
+      annualVolatility: weightedAnnualVolatility,
     });
 
     const optimizedScenario = runScenario({
@@ -176,6 +192,7 @@ export function useSimulation(input: SimulationInput = {}) {
       realReturn,
       targetAmountUsd: input.targetAmountUsd,
       variabilitySeed: 29,
+      annualVolatility: weightedAnnualVolatility,
     });
 
     const optimisticScenario = runScenario({
@@ -187,6 +204,7 @@ export function useSimulation(input: SimulationInput = {}) {
       realReturn: (((1 + (expectedReturn * 1.2)) / (1 + inflation)) - 1),
       targetAmountUsd: input.targetAmountUsd,
       variabilitySeed: 47,
+      annualVolatility: weightedAnnualVolatility,
     });
 
     const conservativeScenario = runScenario({
@@ -198,6 +216,7 @@ export function useSimulation(input: SimulationInput = {}) {
       realReturn: (((1 + (expectedReturn * 0.8)) / (1 + inflation)) - 1),
       targetAmountUsd: input.targetAmountUsd,
       variabilitySeed: 71,
+      annualVolatility: weightedAnnualVolatility,
     });
 
     const goalTarget = input.targetAmountUsd && input.targetAmountUsd > 0 ? input.targetAmountUsd : null;
@@ -213,6 +232,7 @@ export function useSimulation(input: SimulationInput = {}) {
       optimizedSavings,
       fxRate,
       healthScore: insightsLayer.healthScore,
+      annualVolatility: weightedAnnualVolatility,
       goalProgress,
       remainingAmount,
     });
