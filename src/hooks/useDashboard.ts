@@ -49,6 +49,7 @@ export function useDashboard() {
   const [income, setIncome] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<AccountLike[]>([]);
+  const [loading, setLoading] = useState(true);
   const { ccl } = useFX();
   const portfolio = usePortfolio(assets);
 
@@ -57,6 +58,7 @@ export function useDashboard() {
 
     const load = async () => {
       try {
+        setLoading(true);
         const [assetsRes, incomeRes, expensesRes, accountsRes] = await Promise.allSettled([
           fetch('/api/assets', { cache: 'no-store', credentials: 'include' }),
           fetch('/api/income', { cache: 'no-store', credentials: 'include' }),
@@ -84,6 +86,8 @@ export function useDashboard() {
         setAccounts(Array.isArray((accountsData as any).accounts) ? (accountsData as any).accounts : []);
       } catch (error) {
         console.warn('[dashboard:error]', { message: error instanceof Error ? error.message : 'unknown_error' });
+      } finally {
+        if (mounted) setLoading(false);
       }
     };
 
@@ -184,6 +188,7 @@ export function useDashboard() {
       allocation: { byAsset, byType },
       movers: { gainers, losers },
       portfolio,
+      loading,
     };
 
     console.log('[dashboard] computed', {
@@ -193,5 +198,5 @@ export function useDashboard() {
     });
 
     return result;
-  }, [accounts, ccl, expenses, income, portfolio]);
+  }, [accounts, ccl, expenses, income, loading, portfolio]);
 }
