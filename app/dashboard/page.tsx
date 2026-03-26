@@ -64,7 +64,7 @@ export default function DashboardPage() {
     : insightsLayer.healthScore >= 60
       ? { text: 'Good', className: 'text-lime-300' }
       : insightsLayer.healthScore >= 40
-        ? { text: 'متوسط', className: 'text-amber-300' }
+        ? { text: 'Average', className: 'text-amber-300' }
         : { text: 'Poor', className: 'text-rose-400' };
 
   return (
