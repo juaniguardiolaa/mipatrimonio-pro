@@ -12,7 +12,7 @@ import { formatCurrency, formatPercent } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
-import { usePortfolio } from '@/src/hooks/usePortfolio';
+import { isValidAsset, usePortfolio } from '@/src/hooks/usePortfolio';
 
 type Position = {
   id: string;
@@ -94,11 +94,14 @@ export default function InvestmentsPage() {
     await loadData();
   }
 
-  const totals = useMemo(() => positions.reduce((acc, row) => ({ invested: acc.invested + (row.costBasisArs ?? 0), current: acc.current + (row.marketValueArs ?? 0), currentUsd: acc.currentUsd + (row.marketValueUsd ?? 0), gain: acc.gain + (row.profitLossArs ?? 0) }), { invested: 0, current: 0, currentUsd: 0, gain: 0 }), [positions]);
+  const totals = useMemo(() => positions
+    .filter((position) => isValidAsset(position))
+    .reduce((acc, row) => ({ invested: acc.invested + (row.costBasisArs ?? 0), current: acc.current + (row.marketValueArs ?? 0), currentUsd: acc.currentUsd + (row.marketValueUsd ?? 0), gain: acc.gain + (row.profitLossArs ?? 0) }), { invested: 0, current: 0, currentUsd: 0, gain: 0 }), [positions]);
   const roi = totals.invested > 0 ? (totals.gain / totals.invested) * 100 : 0;
   const byType = useMemo(() => {
     const map = new Map<string, number>();
-    positions.forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
+    positions.filter((position) => isValidAsset(position))
+      .forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
     const palette = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#14B8A6'];
     return Array.from(map.entries()).map(([name, value], i) => ({ name, value, color: palette[i % palette.length] }));
   }, [positions]);

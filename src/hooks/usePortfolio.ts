@@ -13,6 +13,17 @@ type AssetInput = {
   cedearRatio?: number | null;
 };
 
+function roundMoney(value: number | null): number | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  return Math.round(value * 100) / 100;
+}
+
+const safeSum = (values: Array<number | null>) => values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
+
+export function isValidAsset(position: { marketValueUsd: number | null; isRealPrice: boolean }) {
+  return position.marketValueUsd !== null && position.isRealPrice;
+}
+
 export function usePortfolio(assets: AssetInput[]) {
   const prices = usePrices(assets);
   const { ccl } = useFX();
@@ -64,40 +75,48 @@ export function usePortfolio(assets: AssetInput[]) {
       ? marketPriceArs !== null ? marketPriceArs * asset.quantity : null
       : pnlEligiblePriceArs !== null ? pnlEligiblePriceArs * asset.quantity : null;
 
-    const costBasisArs = asset.currency === 'ARS' ? asset.purchasePrice * asset.quantity : ccl ? asset.purchasePrice * asset.quantity * ccl : null;
-    const costBasisUsd = asset.currency === 'USD' ? asset.purchasePrice * asset.quantity : ccl ? (asset.purchasePrice * asset.quantity) / ccl : null;
+    // Base currency: USD (all calculations start in USD)
+    const costBasisUsd = asset.currency === 'USD'
+      ? asset.purchasePrice * asset.quantity
+      : ccl
+        ? (asset.purchasePrice * asset.quantity) / ccl
+        : null;
+    const costBasisArs = costBasisUsd !== null && ccl ? costBasisUsd * ccl : null;
 
     const profitLossUsd = marketValueUsd !== null && costBasisUsd !== null ? marketValueUsd - costBasisUsd : null;
-    const profitLossArs = marketValueArs !== null && costBasisArs !== null ? marketValueArs - costBasisArs : null;
+    const profitLossArs = profitLossUsd !== null && ccl ? profitLossUsd * ccl : null;
     const roiPercent = costBasisUsd && profitLossUsd !== null && costBasisUsd > 0 ? (profitLossUsd / costBasisUsd) * 100 : 0;
 
     return {
       ...asset,
       ticker: asset.ticker || asset.symbol,
-      marketPriceUsd,
-      marketPriceArs,
-      currentPrice: marketPriceArs,
-      currentPriceUsd: marketPriceUsd,
-      marketValueUsd,
-      marketValueArs,
-      marketValue: marketValueArs ?? 0,
-      profitLossUsd,
-      profitLossArs,
-      profitLoss: profitLossArs ?? 0,
-      costBasisUsd,
-      costBasisArs,
-      costBasis: costBasisArs ?? 0,
+      marketPriceUsd: roundMoney(marketPriceUsd),
+      marketPriceArs: roundMoney(marketPriceArs),
+      currentPrice: roundMoney(marketPriceArs),
+      currentPriceUsd: roundMoney(marketPriceUsd),
+      marketValueUsd: roundMoney(marketValueUsd),
+      marketValueArs: roundMoney(marketValueArs),
+      marketValue: roundMoney(marketValueArs) ?? 0,
+      profitLossUsd: roundMoney(profitLossUsd),
+      profitLossArs: roundMoney(profitLossArs),
+      profitLoss: roundMoney(profitLossArs) ?? 0,
+      costBasisUsd: roundMoney(costBasisUsd),
+      costBasisArs: roundMoney(costBasisArs),
+      costBasis: roundMoney(costBasisArs) ?? 0,
       roiPercent,
       isRealPrice,
-      pnl: profitLossArs ?? 0,
+      pnl: roundMoney(profitLossArs) ?? 0,
       pnlPct: roiPercent,
     };
   }), [assets, ccl, prices]);
 
-  const totals = useMemo(() => ({
-    totalUsd: positions.reduce((sum, position) => sum + (position.marketValueUsd ?? 0), 0),
-    totalArs: positions.reduce((sum, position) => sum + (position.marketValueArs ?? 0), 0),
-  }), [positions]);
+  const totals = useMemo(() => {
+    const validPositions = positions.filter((position) => isValidAsset(position));
+    return {
+      totalUsd: roundMoney(safeSum(validPositions.map((position) => position.marketValueUsd))) ?? 0,
+      totalArs: roundMoney(safeSum(validPositions.map((position) => position.marketValueArs))) ?? 0,
+    };
+  }, [positions]);
 
   return { positions, totals };
 }

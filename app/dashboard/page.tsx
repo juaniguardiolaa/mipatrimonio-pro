@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import { Landmark, TrendingUp, Wallet, WalletCards } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { usePortfolio } from '@/src/hooks/usePortfolio';
+import { isValidAsset, usePortfolio } from '@/src/hooks/usePortfolio';
 
 type Position = {
   id: string;
@@ -67,7 +67,7 @@ export default function DashboardPage() {
   }, [portfolioTotals.totalArs, portfolioTotals.totalUsd]);
 
   const totals = useMemo(() => {
-    return positions.reduce((acc, p) => {
+    return positions.filter((position) => isValidAsset(position)).reduce((acc, p) => {
       acc.pnl += p.profitLoss;
       return acc;
     }, { pnl: 0 });
@@ -75,14 +75,16 @@ export default function DashboardPage() {
 
   const allocationByType = useMemo(() => {
     const map = new Map<string, number>();
-    positions.forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
+    positions.filter((position) => isValidAsset(position))
+      .forEach((p) => map.set(p.assetType, (map.get(p.assetType) || 0) + p.marketValue));
     const palette = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444', '#06B6D4'];
     return Array.from(map.entries()).map(([name, value], idx) => ({ name, value, color: palette[idx % palette.length] }));
   }, [positions]);
 
   const allocationByCurrency = useMemo(() => {
-    const ars = positions.reduce((sum, p) => sum + (p.marketValueArs ?? 0), 0);
-    const usdArs = positions.reduce((sum, p) => sum + (p.marketValueUsd ?? 0), 0);
+    const validPositions = positions.filter((position) => isValidAsset(position));
+    const ars = validPositions.reduce((sum, p) => sum + (p.marketValueArs ?? 0), 0);
+    const usdArs = validPositions.reduce((sum, p) => sum + (p.marketValueUsd ?? 0), 0);
     return [
       { name: 'ARS', value: ars, color: '#2563EB' },
       { name: 'USD', value: usdArs * 1200, color: '#10B981' },
