@@ -8,7 +8,7 @@ type AssetForPricing = {
 };
 
 export type PriceResult = {
-  price: number;
+  price: number | null;
   source: 'market' | 'fallback';
 };
 
@@ -18,49 +18,71 @@ function normalizeCryptoSymbol(symbol: string) {
 }
 
 function normalizeCryptoBaseSymbol(symbol: string) {
-  return normalizeCryptoSymbol(symbol).replace(/USDT$/, '').toLowerCase();
+  return normalizeCryptoSymbol(symbol).replace(/USDT$/, '').toUpperCase();
 }
 
-async function fetchCryptoPriceUsd(symbol: string): Promise<number | null> {
-  const baseSymbol = normalizeCryptoBaseSymbol(symbol);
-
-  const explicitIdMap: Record<string, string> = {
-    btc: 'bitcoin',
-    eth: 'ethereum',
-    sol: 'solana',
-    bnb: 'binancecoin',
-    xrp: 'ripple',
-    ada: 'cardano',
-    doge: 'dogecoin',
-    matic: 'matic-network',
-    avax: 'avalanche-2',
-    dot: 'polkadot',
-    link: 'chainlink',
-    ltc: 'litecoin',
-  };
-
-  const coingeckoCandidateIds = Array.from(new Set([
-    explicitIdMap[baseSymbol],
-    baseSymbol,
-    baseSymbol.replace(/_/g, '-'),
-  ].filter(Boolean) as string[]));
-
-  if (coingeckoCandidateIds.length === 0) return null;
+async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 3000): Promise<T | null> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const ids = encodeURIComponent(coingeckoCandidateIds.join(','));
-    const coingeckoRes = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
-    if (!coingeckoRes.ok) return null;
-    const coingeckoData = await coingeckoRes.json() as Record<string, { usd?: number }>;
-    for (const id of coingeckoCandidateIds) {
-      const price = Number(coingeckoData?.[id]?.usd ?? null);
-      if (Number.isFinite(price) && price > 0) return price;
-    }
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json() as T;
+  } catch {
     return null;
-  } catch (error) {
-    console.warn('[pricing:failed]', { symbol, assetType: 'CRYPTO', reason: error instanceof Error ? error.message : 'coingecko_error' });
-    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
+}
+
+async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<string, number | null>> {
+  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => symbol.toUpperCase())));
+  if (uniqueSymbols.length === 0) return {};
+
+  const explicitIdMap: Record<string, string> = {
+    BTC: 'bitcoin',
+    ETH: 'ethereum',
+    SOL: 'solana',
+    BNB: 'binancecoin',
+    XRP: 'ripple',
+    ADA: 'cardano',
+    DOGE: 'dogecoin',
+    MATIC: 'matic-network',
+    AVAX: 'avalanche-2',
+    DOT: 'polkadot',
+    LINK: 'chainlink',
+    LTC: 'litecoin',
+  };
+
+  const symbolToId = new Map<string, string>();
+  for (const symbol of uniqueSymbols) {
+    const base = normalizeCryptoBaseSymbol(symbol);
+    const id = explicitIdMap[base] ?? base.toLowerCase();
+    symbolToId.set(symbol, id);
+  }
+
+  const uniqueIds = Array.from(new Set(Array.from(symbolToId.values())));
+  const idsParam = encodeURIComponent(uniqueIds.join(','));
+  const data = await fetchJsonWithTimeout<Record<string, { usd?: number }>>(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd`,
+  );
+
+  const result: Record<string, number | null> = {};
+  if (!data) {
+    uniqueSymbols.forEach((symbol) => {
+      result[symbol] = null;
+    });
+    return result;
+  }
+
+  uniqueSymbols.forEach((symbol) => {
+    const id = symbolToId.get(symbol);
+    const price = Number(id ? data?.[id]?.usd ?? null : null);
+    result[symbol] = Number.isFinite(price) && price > 0 ? price : null;
+  });
+
+  return result;
 }
 
 async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
@@ -68,20 +90,24 @@ async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
   if (!normalized) return null;
 
   try {
-    const chartRes = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalized)}`);
-    if (!chartRes.ok) return null;
-    const chartData = await chartRes.json() as {
+    const chartData = await fetchJsonWithTimeout<{
       chart?: {
         result?: Array<{
           meta?: { regularMarketPrice?: number };
         }>;
       };
-    };
+    }>(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalized)}`);
+
+    if (!chartData) return null;
     const price = Number(chartData?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null);
     if (!Number.isFinite(price) || price <= 0) return null;
     return price;
   } catch (error) {
-    console.warn('[pricing:failed]', { symbol: normalized, assetType: 'STOCK', reason: error instanceof Error ? error.message : 'yahoo_error' });
+    console.warn('[pricing:failed]', {
+      symbol: normalized,
+      assetType: 'STOCK',
+      reason: error instanceof Error ? error.message : 'yahoo_error',
+    });
     return null;
   }
 }
@@ -106,62 +132,71 @@ export function usePrices(assets: AssetForPricing[]) {
 
       for (let i = 0; i < assets.length; i += BATCH_SIZE) {
         const batch = assets.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (asset) => {
-          try {
-            let price: number | null = null;
-            const cacheKey = `${asset.assetType}:${asset.symbol.toUpperCase()}`;
-            const cached = cacheRef.current[cacheKey];
 
-            if (cached && now - cached.ts < 60_000) {
-              price = cached.price;
-            } else {
-              if (asset.assetType === 'CRYPTO') {
-                price = await fetchCryptoPriceUsd(asset.symbol);
+        const cryptoAssets = batch.filter((asset) => asset.assetType === 'CRYPTO');
+        const cryptoPricesBySymbol = await fetchCryptoBatchPricesUsd(cryptoAssets.map((asset) => asset.symbol));
+
+        await Promise.all(
+          batch.map(async (asset) => {
+            try {
+              let price: number | null = null;
+              const cacheKey = `${asset.assetType}:${asset.symbol.toUpperCase()}`;
+              const cached = cacheRef.current[cacheKey];
+
+              if (cached && now - cached.ts < 60_000) {
+                price = cached.price;
+              } else {
+                if (asset.assetType === 'CRYPTO') {
+                  price = cryptoPricesBySymbol[asset.symbol.toUpperCase()] ?? null;
+                }
+
+                if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
+                  price = await fetchStockPriceUsd(asset.symbol);
+                }
+
+                if (asset.assetType === 'CEDEAR') {
+                  // future: apply FX * ratio
+                }
+
+                cacheRef.current[cacheKey] = { price, ts: Date.now() };
               }
 
-              if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
-                price = await fetchStockPriceUsd(asset.symbol);
+              if (price === null) {
+                console.warn('[pricing:failed]', {
+                  symbol: asset.symbol,
+                  assetType: asset.assetType,
+                  reason: 'provider_unavailable',
+                });
               }
 
-              if (asset.assetType === 'CEDEAR') {
-                // future: apply FX * ratio
+              if (price && !Number.isNaN(price)) {
+                newPrices[asset.id] = { price, source: 'market' };
+              } else if (asset.purchasePrice) {
+                newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
+                console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
+              } else {
+                newPrices[asset.id] = { price: null, source: 'fallback' };
+                console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
               }
 
-              cacheRef.current[cacheKey] = { price, ts: Date.now() };
-            }
-
-            if (price === null) {
+              console.log('[pricing]', { symbol: asset.symbol, type: asset.assetType, price });
+            } catch (error) {
               console.warn('[pricing:failed]', {
                 symbol: asset.symbol,
                 assetType: asset.assetType,
-                reason: 'provider_unavailable',
+                reason: error instanceof Error ? error.message : 'unknown_error',
               });
-            }
 
-            if (price && !Number.isNaN(price)) {
-              newPrices[asset.id] = { price, source: 'market' };
-            } else if (asset.purchasePrice) {
-              newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
-              console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
-            } else {
-              newPrices[asset.id] = { price: 0, source: 'fallback' };
+              if (asset.purchasePrice) {
+                newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
+              } else {
+                newPrices[asset.id] = { price: null, source: 'fallback' };
+              }
+
               console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
             }
-            console.log('[pricing]', { symbol: asset.symbol, type: asset.assetType, price });
-          } catch (error) {
-            console.warn('[pricing:failed]', {
-              symbol: asset.symbol,
-              assetType: asset.assetType,
-              reason: error instanceof Error ? error.message : 'unknown_error',
-            });
-            if (asset.purchasePrice) {
-              newPrices[asset.id] = { price: asset.purchasePrice, source: 'fallback' };
-            } else {
-              newPrices[asset.id] = { price: 0, source: 'fallback' };
-            }
-            console.warn('[pricing:fallback-used]', { symbol: asset.symbol, assetType: asset.assetType });
-          }
-        }));
+          }),
+        );
       }
 
       if (isMounted) setPrices(newPrices);

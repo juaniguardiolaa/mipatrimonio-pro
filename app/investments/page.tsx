@@ -22,8 +22,8 @@ type Position = {
   quantity: number;
   purchasePrice: number;
   currency: string;
-  currentPrice: number;
-  currentPriceUsd: number;
+  currentPrice: number | null;
+  currentPriceUsd: number | null;
   costBasis: number;
   marketValue: number;
   marketValueUsd: number;
@@ -134,8 +134,8 @@ export default function InvestmentsPage() {
           { key: 'ticker', label: 'Ticker', sortable: true },
           { key: 'assetType', label: 'Tipo', sortable: true, render: (row) => <Badge variant="primary">{row.assetType}</Badge> },
           { key: 'quantity', label: 'Cantidad', sortable: true },
-          { key: 'currentPrice', label: 'Precio ARS', sortable: true, render: (row) => row.isRealPrice ? formatCurrency(row.currentPrice, 'ARS') : `${formatCurrency(row.currentPrice, 'ARS')} ⚠` },
-          { key: 'currentPriceUsd', label: 'Precio USD', sortable: true, render: (row) => row.isRealPrice ? formatCurrency(row.currentPriceUsd, 'USD') : `${formatCurrency(row.currentPriceUsd, 'USD')} ⚠ Precio no actualizado` },
+          { key: 'currentPrice', label: 'Precio ARS', sortable: true, render: (row) => row.currentPrice === null ? '—' : row.isRealPrice ? formatCurrency(row.currentPrice, 'ARS') : `${formatCurrency(row.currentPrice, 'ARS')} ⚠` },
+          { key: 'currentPriceUsd', label: 'Precio USD', sortable: true, render: (row) => row.currentPriceUsd === null ? '—' : row.isRealPrice ? formatCurrency(row.currentPriceUsd, 'USD') : `${formatCurrency(row.currentPriceUsd, 'USD')} ⚠ Precio no actualizado` },
           { key: 'marketValue', label: 'Valor ARS', sortable: true, render: (row) => formatCurrency(row.marketValue, 'ARS') },
           { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => formatCurrency(row.marketValueUsd, 'USD') },
           { key: 'profitLoss', label: 'Ganancia', sortable: true, render: (row) => <Badge variant={row.profitLoss >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLoss, 'ARS')}</Badge> },
