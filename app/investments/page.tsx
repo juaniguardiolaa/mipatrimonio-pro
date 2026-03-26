@@ -12,13 +12,16 @@ import { formatCurrency, formatPercent } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import { usePortfolio } from '@/src/hooks/usePortfolio';
 
 type Position = {
   id: string;
   ticker: string;
+  symbol: string;
   assetType: string;
   quantity: number;
   purchasePrice: number;
+  currency: string;
   currentPrice: number;
   currentPriceUsd: number;
   costBasis: number;
@@ -31,7 +34,7 @@ type Position = {
 type Account = { id: string; name: string; institution: string };
 
 export default function InvestmentsPage() {
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [assets, setAssets] = useState<Position[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [symbol, setSymbol] = useState('');
   const [assetType, setAssetType] = useState('STOCK');
@@ -41,14 +44,14 @@ export default function InvestmentsPage() {
   const [error, setError] = useState('');
 
   async function loadData() {
-    const [portfolioRes, accountsRes] = await Promise.all([
-      fetch('/api/pricing/portfolio/demo', { cache: 'no-store', credentials: 'include' }),
+    const [assetsRes, accountsRes] = await Promise.all([
+      fetch('/api/assets', { cache: 'no-store', credentials: 'include' }),
       fetch('/api/accounts', { cache: 'no-store', credentials: 'include' }),
     ]);
 
-    if (portfolioRes.ok) {
-      const portfolioData = await portfolioRes.json();
-      setPositions(portfolioData.positions || []);
+    if (assetsRes.ok) {
+      const assetsData = await assetsRes.json();
+      setAssets(assetsData.assets || []);
     }
 
     if (accountsRes.ok) {
@@ -60,6 +63,8 @@ export default function InvestmentsPage() {
   useEffect(() => {
     loadData().catch(() => undefined);
   }, []);
+
+  const positions = usePortfolio(assets);
 
   async function onCreateAsset(event: FormEvent) {
     event.preventDefault();

@@ -11,12 +11,16 @@ import { Badge } from '@/components/ui/Badge';
 import { Select } from '@/components/ui/Select';
 import { Landmark, TrendingUp, Wallet, WalletCards } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
-import { AutoPricingUpdater } from '@/components/pricing/AutoPricingUpdater';
+import { usePortfolio } from '@/src/hooks/usePortfolio';
 
 type Position = {
   id: string;
   symbol: string;
+  ticker?: string | null;
   assetType: string;
+  quantity: number;
+  purchasePrice: number;
+  currency: string;
   marketValue: number;
   marketValueUsd: number;
   profitLoss: number;
@@ -33,24 +37,31 @@ const usdTrend = [
 ];
 
 export default function DashboardPage() {
-  const [positions, setPositions] = useState<Position[]>([]);
+  const [assets, setAssets] = useState<Position[]>([]);
   const [netWorthArs, setNetWorthArs] = useState(0);
   const [netWorthUsd, setNetWorthUsd] = useState(0);
   const [baseCurrency, setBaseCurrency] = useState<'ARS' | 'USD'>('ARS');
 
-  const fetchPortfolioData = useCallback(async () => {
-    const res = await fetch('/api/pricing/portfolio/demo', { cache: 'no-store', credentials: 'include' });
+  const fetchAssets = useCallback(async () => {
+    const res = await fetch('/api/assets', { cache: 'no-store', credentials: 'include' });
     if (!res.ok) return;
 
     const data = await res.json();
-    setPositions(data.positions || []);
-    setNetWorthArs(data.netWorthArs || 0);
-    setNetWorthUsd(data.netWorthUsd || 0);
+    setAssets(data.assets || []);
   }, []);
 
+  const positions = usePortfolio(assets);
+
   useEffect(() => {
-    fetchPortfolioData().catch(() => undefined);
-  }, [fetchPortfolioData]);
+    fetchAssets().catch(() => undefined);
+  }, [fetchAssets]);
+
+  useEffect(() => {
+    const ars = positions.reduce((sum, p) => sum + p.marketValue, 0);
+    const usd = positions.reduce((sum, p) => sum + p.marketValueUsd, 0);
+    setNetWorthArs(ars);
+    setNetWorthUsd(usd);
+  }, [positions]);
 
   const totals = useMemo(() => {
     return positions.reduce((acc, p) => {
@@ -82,7 +93,7 @@ export default function DashboardPage() {
       <SectionHeader
         title="Dashboard Argentina"
         subtitle="Patrimonio real en ARS y USD con soporte CEDEAR/BONOS/FX"
-        actions={<div className="flex items-center gap-2"><AutoPricingUpdater onUpdated={fetchPortfolioData} /><Select value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value as 'ARS' | 'USD')}><option value="ARS">ARS</option><option value="USD">USD</option></Select></div>}
+        actions={<div className="flex items-center gap-2"><Select value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value as 'ARS' | 'USD')}><option value="ARS">ARS</option><option value="USD">USD</option></Select></div>}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
