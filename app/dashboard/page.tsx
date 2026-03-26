@@ -249,6 +249,14 @@ export default function DashboardPage() {
               <p>Expected annual return: {formatPercent(simulationLayer.expectedReturn * 100)}</p>
               <p>Real annual return: {formatPercent(simulationLayer.realReturn * 100)}</p>
               <p>Projected net worth: {formatCurrency(simulationLayer.projectedNetWorth.usd, 'USD')}</p>
+              {simulationLayer.conservativeYearsToGoal !== null || simulationLayer.optimisticYearsToGoal !== null ? (
+                <p>
+                  Estimated range:{' '}
+                  {simulationLayer.optimisticYearsToGoal !== null ? simulationLayer.optimisticYearsToGoal : 'N/A'}
+                  {' – '}
+                  {simulationLayer.conservativeYearsToGoal !== null ? simulationLayer.conservativeYearsToGoal : 'N/A'} years
+                </p>
+              ) : null}
             </div>
             <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm text-emerald-100">
               <p>
@@ -261,6 +269,12 @@ export default function DashboardPage() {
                   ? `Base scenario reaches goal in ${simulationLayer.baseScenario.yearsToGoal} years`
                   : 'Base scenario does not reach goal in selected horizon'}
               </p>
+              {goalInput !== '' ? (
+                <>
+                  <p>You have reached {(simulationLayer.goalProgress * 100).toFixed(1)}% of your goal.</p>
+                  <p>Remaining: {formatCurrency(simulationLayer.remainingAmount, 'USD')}</p>
+                </>
+              ) : null}
             </div>
           </div>
 

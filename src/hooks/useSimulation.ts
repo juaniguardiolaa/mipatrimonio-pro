@@ -53,6 +53,11 @@ function addMonths(start: Date, months: number) {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+function seededRandom(seed: number) {
+  const value = Math.sin(seed) * 10000;
+  return value - Math.floor(value);
+}
+
 function runScenario(options: {
   months: number;
   startNetWorthUsd: number;
@@ -61,6 +66,7 @@ function runScenario(options: {
   expectedReturn: number;
   realReturn: number;
   targetAmountUsd?: number;
+  variabilitySeed?: number;
 }) {
   const {
     months,
@@ -70,9 +76,9 @@ function runScenario(options: {
     expectedReturn,
     realReturn,
     targetAmountUsd,
+    variabilitySeed = 1,
   } = options;
 
-  const monthlyRealReturn = (1 + realReturn) ** (1 / 12) - 1;
   const now = new Date();
   let currentUsd = startNetWorthUsd;
   let monthsToGoal: number | null = null;
@@ -80,6 +86,9 @@ function runScenario(options: {
   const simulation: SimulationPoint[] = [];
 
   for (let index = 1; index <= months; index += 1) {
+    const annualJitter = (seededRandom((variabilitySeed * 997) + index) * 0.1) - 0.05;
+    const jitteredRealAnnualReturn = realReturn + annualJitter;
+    const monthlyRealReturn = (1 + jitteredRealAnnualReturn) ** (1 / 12) - 1;
     currentUsd = (currentUsd * (1 + monthlyRealReturn)) + monthlyContribution;
     const point: SimulationPoint = {
       month: addMonths(now, index),
@@ -155,6 +164,7 @@ export function useSimulation(input: SimulationInput = {}) {
       expectedReturn,
       realReturn,
       targetAmountUsd: input.targetAmountUsd,
+      variabilitySeed: 11,
     });
 
     const optimizedScenario = runScenario({
@@ -165,7 +175,34 @@ export function useSimulation(input: SimulationInput = {}) {
       expectedReturn,
       realReturn,
       targetAmountUsd: input.targetAmountUsd,
+      variabilitySeed: 29,
     });
+
+    const optimisticScenario = runScenario({
+      months,
+      startNetWorthUsd: Math.max(0, dashboard.netWorth.usd),
+      fxRate,
+      monthlyContribution: Math.max(0, optimizedSavings),
+      expectedReturn: expectedReturn * 1.2,
+      realReturn: (((1 + (expectedReturn * 1.2)) / (1 + inflation)) - 1),
+      targetAmountUsd: input.targetAmountUsd,
+      variabilitySeed: 47,
+    });
+
+    const conservativeScenario = runScenario({
+      months,
+      startNetWorthUsd: Math.max(0, dashboard.netWorth.usd),
+      fxRate,
+      monthlyContribution: Math.max(0, optimizedSavings),
+      expectedReturn: expectedReturn * 0.8,
+      realReturn: (((1 + (expectedReturn * 0.8)) / (1 + inflation)) - 1),
+      targetAmountUsd: input.targetAmountUsd,
+      variabilitySeed: 71,
+    });
+
+    const goalTarget = input.targetAmountUsd && input.targetAmountUsd > 0 ? input.targetAmountUsd : null;
+    const goalProgress = goalTarget ? clamp(safeDivide(dashboard.netWorth.usd, goalTarget), 0, 1) : 0;
+    const remainingAmount = goalTarget ? Math.max(0, goalTarget - dashboard.netWorth.usd) : 0;
 
     console.log('[simulation] run', {
       years,
@@ -176,6 +213,8 @@ export function useSimulation(input: SimulationInput = {}) {
       optimizedSavings,
       fxRate,
       healthScore: insightsLayer.healthScore,
+      goalProgress,
+      remainingAmount,
     });
 
     return {
@@ -187,6 +226,10 @@ export function useSimulation(input: SimulationInput = {}) {
       yearsToGoal: optimizedScenario.yearsToGoal,
       expectedReturn,
       realReturn,
+      optimisticYearsToGoal: optimisticScenario.yearsToGoal,
+      conservativeYearsToGoal: conservativeScenario.yearsToGoal,
+      goalProgress,
+      remainingAmount,
       baseScenario,
       optimizedScenario,
     };
