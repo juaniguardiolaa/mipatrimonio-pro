@@ -2,10 +2,11 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { useDashboard } from './useDashboard';
 import { useFinancialInsights } from './useFinancialInsights';
 import { useSimulation } from './useSimulation';
+import { useAdvisorMemory } from './useAdvisorMemory';
 
 type AdvisorResponse = {
   answer: string;
-  actions: string[];
+  actions: Array<{ text: string; impact: number }>;
   priority: 'high' | 'medium' | 'low';
   confidence: number;
 };
@@ -23,6 +24,10 @@ type CompactContext = {
     };
     snapshotHash: string;
   };
+  memory: {
+    lastQuestions: string[];
+    lastRecommendations: Array<{ text: string; impact: number; status: 'pending' | 'completed' | 'ignored' }>;
+  };
 };
 
 function hashString(value: string) {
@@ -39,6 +44,7 @@ export function useAdvisor() {
   const dashboard = useDashboard();
   const insights = useFinancialInsights();
   const simulation = useSimulation();
+  const advisorMemory = useAdvisorMemory();
 
   const [loading, setLoading] = useState(false);
   const [lastResponse, setLastResponse] = useState<AdvisorResponse | null>(null);
@@ -87,8 +93,18 @@ export function useAdvisor() {
         },
         snapshotHash,
       },
+      memory: {
+        lastQuestions: advisorMemory.memory.lastQuestions.map((item) => item.text),
+        lastRecommendations: advisorMemory.memory.lastRecommendations.map((item) => ({
+          text: item.text,
+          impact: item.impact,
+          status: item.status,
+        })).slice(0, 5),
+      },
     };
   }, [
+    advisorMemory.memory.lastQuestions,
+    advisorMemory.memory.lastRecommendations,
     dashboard.allocation.byType,
     dashboard.cashflow.savingsRate,
     dashboard.netWorth.usd,
@@ -138,6 +154,8 @@ export function useAdvisor() {
       const data = await response.json() as AdvisorResponse;
       cacheRef.current.set(cacheKey, data);
       setLastResponse(data);
+      advisorMemory.pushQuestion(normalized);
+      advisorMemory.mergeRecommendations(data.actions, context.financialSummary.snapshotHash);
       return data;
     })()
       .catch((err) => {
@@ -151,7 +169,7 @@ export function useAdvisor() {
 
     inFlightRef.current.set(cacheKey, promise);
     return promise;
-  }, [context]);
+  }, [advisorMemory, context]);
 
   const askDebounced = useCallback((question: string, delayMs = 300) => new Promise<AdvisorResponse>((resolve, reject) => {
     if (debounceRef.current) window.clearTimeout(debounceRef.current);
@@ -166,5 +184,31 @@ export function useAdvisor() {
     loading,
     error,
     lastResponse,
+    memory: advisorMemory.memory,
+    pendingRecommendations: advisorMemory.pendingRecommendations,
+    setRecommendationStatus: (text: string, status: 'pending' | 'completed' | 'ignored') => {
+      if (status !== 'completed') {
+        advisorMemory.setRecommendationStatus(text, status);
+        return;
+      }
+
+      const last = dashboard.cashflow.monthly[dashboard.cashflow.monthly.length - 1];
+      const prev = dashboard.cashflow.monthly[dashboard.cashflow.monthly.length - 2];
+      const loweredText = text.toLowerCase();
+
+      let improved = true;
+      if (loweredText.includes('expense') || loweredText.includes('spend')) {
+        improved = Boolean(last && prev && last.expenses <= prev.expenses);
+      } else if (loweredText.includes('saving')) {
+        improved = dashboard.cashflow.savingsRate >= 0.1;
+      }
+
+      if (improved) {
+        advisorMemory.setRecommendationStatus(text, 'completed');
+      } else {
+        console.warn('[advisor:v2] false_completion_detected', { text });
+        advisorMemory.setRecommendationStatus(text, 'pending');
+      }
+    },
   };
 }

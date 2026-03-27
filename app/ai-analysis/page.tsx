@@ -13,6 +13,7 @@ type Message = {
   role: 'user' | 'assistant';
   content: string;
   meta?: string;
+  actions?: Array<{ text: string; impact: number }>;
 };
 
 const QUICK_QUESTIONS = [
@@ -48,7 +49,8 @@ export default function AiAnalysisPage() {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: response.answer,
-        meta: `Priority: ${response.priority.toUpperCase()} · Confidence: ${(response.confidence * 100).toFixed(0)}% · Actions: ${response.actions.join(' | ')}`,
+        meta: `Priority: ${response.priority.toUpperCase()} · Confidence: ${(response.confidence * 100).toFixed(0)}%`,
+        actions: response.actions,
       }]);
     } catch {
       setMessages((prev) => [...prev, {
@@ -85,6 +87,18 @@ export default function AiAnalysisPage() {
               <p className="text-xs uppercase tracking-wide text-gray-400">{message.role}</p>
               <p className="mt-1 text-sm text-gray-100">{message.content}</p>
               {message.meta ? <p className="mt-2 text-xs text-gray-400">{message.meta}</p> : null}
+              {message.actions?.length ? (
+                <ul className="mt-2 space-y-1 text-xs">
+                  {message.actions.map((action, index) => (
+                    <li key={`${message.id}-action-${index}`} className="rounded border border-gray-700 bg-gray-900/40 px-2 py-1 text-gray-200">
+                      <span className="mr-1">
+                        {action.impact >= 0.8 ? '🔥 High impact' : action.impact >= 0.5 ? '⚡ Medium' : 'ℹ️ Low'}
+                      </span>
+                      — {action.text}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ))}
           {advisor.loading ? <p className="text-sm text-gray-300">Thinking…</p> : null}

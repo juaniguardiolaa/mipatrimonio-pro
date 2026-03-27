@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useDashboard } from './useDashboard';
+import { useAdvisorMemory } from './useAdvisorMemory';
 
 export type Insight = {
   id: string;
@@ -73,6 +74,7 @@ function nowMonthKey() {
 
 export function useFinancialInsights() {
   const dashboard = useDashboard();
+  const advisorMemory = useAdvisorMemory();
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
 
   useEffect(() => {
@@ -182,7 +184,9 @@ export function useFinancialInsights() {
     if (totalExpenses > totalIncome) maxCap = Math.min(maxCap, 50);
     if (netWorthUsd <= 0) maxCap = Math.min(maxCap, 30);
 
-    healthScore = clamp(Math.min(healthScore, maxCap), 0, 100);
+    const completedCount = advisorMemory.memory.lastRecommendations.filter((recommendation) => recommendation.status === 'completed').length;
+    const completionBonus = Math.min(10, completedCount * 2);
+    healthScore = clamp(Math.min(healthScore, maxCap) + completionBonus, 0, 100);
 
     console.log('[healthScore] computed', {
       savingsScore,
@@ -402,7 +406,17 @@ export function useFinancialInsights() {
       .slice(0, 5)
       .map(({ weight: _weight, ...insight }) => insight);
 
+    const ignoredRecommendations = advisorMemory.memory.lastRecommendations
+      .filter((item) => item.status === 'ignored')
+      .map((item) => item.text.toLowerCase());
+
     const prioritizedRecommendations = [...recommendations]
+      .map((recommendation) => ({
+        ...recommendation,
+        impact: ignoredRecommendations.some((ignored) => recommendation.action.toLowerCase().includes(ignored.toLowerCase()))
+          ? recommendation.impact * 0.7
+          : recommendation.impact,
+      }))
       .sort((a, b) => b.impact - a.impact)
       .slice(0, 5)
       .map(({ impact: _impact, ...recommendation }) => recommendation);
@@ -420,5 +434,5 @@ export function useFinancialInsights() {
       alerts: sortedAlerts,
       recommendations: prioritizedRecommendations,
     };
-  }, [dashboard, snapshots]);
+  }, [advisorMemory.memory.lastRecommendations, dashboard, snapshots]);
 }

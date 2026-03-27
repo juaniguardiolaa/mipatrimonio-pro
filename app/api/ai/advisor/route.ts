@@ -15,11 +15,15 @@ type CompactAdvisorPayload = {
     };
     snapshotHash?: string;
   };
+  memory?: {
+    lastQuestions?: string[];
+    lastRecommendations?: Array<{ text: string; impact: number; status: 'pending' | 'completed' | 'ignored' }>;
+  };
 };
 
 type AdvisorStructuredResponse = {
   answer: string;
-  actions: string[];
+  actions: Array<{ text: string; impact: number }>;
   priority: 'high' | 'medium' | 'low';
   confidence: number;
 };
@@ -27,6 +31,30 @@ type AdvisorStructuredResponse = {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const short = (text: string, maxChars = 180) => (text.length <= maxChars ? text : `${text.slice(0, maxChars)}...`);
+
+function scoreActionImpact(params: {
+  text: string;
+  savingsRate: number;
+  topAllocationPct: number;
+  yearsToGoal: number | null;
+}) {
+  const { text, savingsRate, topAllocationPct, yearsToGoal } = params;
+  const lower = text.toLowerCase();
+  let impact = 0.4;
+
+  if (savingsRate < 0) impact = Math.max(impact, 1);
+  if (lower.includes('savings') || lower.includes('expenses') || lower.includes('spend')) {
+    impact = Math.max(impact, savingsRate < 0.1 ? 0.9 : 0.7);
+  }
+  if (lower.includes('rebalance') || lower.includes('concentration') || lower.includes('divers')) {
+    impact = Math.max(impact, topAllocationPct > 70 ? 0.85 : 0.72);
+  }
+  if (lower.includes('goal') || lower.includes('timeline')) {
+    impact = Math.max(impact, yearsToGoal === null ? 0.8 : yearsToGoal > 8 ? 0.75 : 0.55);
+  }
+
+  return clamp(impact, 0, 1);
+}
 
 function computeConfidence(payload: CompactAdvisorPayload) {
   const summary = payload.financialSummary;
@@ -64,6 +92,8 @@ function buildRuleBased(question: string, payload: CompactAdvisorPayload): Advis
   const topAllocation = (summary?.allocations ?? [])[0];
   const topAlert = (summary?.alerts ?? [])[0];
   const topRec = (summary?.recommendations ?? [])[0];
+  const memory = payload.memory;
+  const pendingMemoryRecommendation = (memory?.lastRecommendations ?? []).find((recommendation) => recommendation.status === 'pending');
 
   const allocationImbalance = (topAllocation?.percentage ?? 0) > 50;
   const estimatedGoalNote = yearsToGoal === null
@@ -76,12 +106,28 @@ function buildRuleBased(question: string, payload: CompactAdvisorPayload): Advis
   if (topAlert) weaknesses.push(short(topAlert.message, 120));
 
   const primaryWeakness = weaknesses[0] ?? 'No severe weaknesses detected, but optimization opportunities remain.';
+  const memoryPrefix = memory?.lastQuestions?.length
+    ? `Last time you asked about \"${memory.lastQuestions[0]}\". `
+    : '';
 
-  const actions = [
+  const actionCandidates = [
     topRec?.action ?? 'Increase monthly savings contributions by at least 10%.',
     allocationImbalance ? `Rebalance 10–20% away from ${topAllocation?.assetType ?? 'the largest position'} to reduce concentration risk.` : 'Review allocation quarterly to keep diversification balanced.',
     yearsToGoal === null ? 'Raise savings and/or reduce expenses to make the goal reachable in simulation.' : 'Maintain contributions and monitor progress monthly against timeline.',
-  ].slice(0, 3);
+  ];
+
+  const actions = actionCandidates
+    .map((text) => ({
+      text,
+      impact: scoreActionImpact({
+        text,
+        savingsRate,
+        topAllocationPct: topAllocation?.percentage ?? 0,
+        yearsToGoal,
+      }),
+    }))
+    .sort((a, b) => b.impact - a.impact)
+    .slice(0, 3);
 
   let priority: 'high' | 'medium' | 'low' = 'medium';
   if (savingsRate < 0 || topAlert?.severity === 'high') priority = 'high';
@@ -97,7 +143,7 @@ function buildRuleBased(question: string, payload: CompactAdvisorPayload): Advis
   }
 
   return {
-    answer: short(`${primaryWeakness} Net worth is ${netWorthUsd.toFixed(2)} USD. Prioritize concrete improvements over generic changes.`),
+    answer: short(`${memoryPrefix}${primaryWeakness} Net worth is ${netWorthUsd.toFixed(2)} USD. ${pendingMemoryRecommendation ? `You still have a pending step: ${pendingMemoryRecommendation.text}.` : 'Prioritize concrete improvements over generic changes.'}`),
     actions,
     priority,
     confidence: computeConfidence(payload),
@@ -113,7 +159,9 @@ async function enhanceWithLLM(ruleBased: AdvisorStructuredResponse, payload: Com
     'Use the provided data only. Do not hallucinate.',
     'Must give actionable financial advice and no generic text.',
     "Prioritize the user's biggest financial weakness.",
-    'Return strict JSON with: answer(max 120 words), actions(max 3), priority(high|medium|low), confidence(0-1).',
+    'Return strict JSON with: answer(max 120 words), actions([{text,impact(0-1)}], max 3), priority(high|medium|low), confidence(0-1).',
+    'Actions must include estimated impact and prioritize highest-impact improvements first.',
+    'Reference memory when relevant and avoid repeating identical advice unless unresolved.',
   ].join(' ');
 
   const input = {
@@ -150,9 +198,20 @@ async function enhanceWithLLM(ruleBased: AdvisorStructuredResponse, payload: Com
     return ruleBased;
   }
 
+  const actions = parsed.actions
+    .map((action: any) => ({
+      text: short(String(action?.text ?? ''), 180),
+      impact: clamp(Number(action?.impact ?? 0), 0, 1),
+    }))
+    .filter((action) => action.text.length > 0)
+    .sort((a, b) => b.impact - a.impact)
+    .slice(0, 3);
+
+  if (actions.length === 0) return ruleBased;
+
   return {
     answer: short(parsed.answer, 900),
-    actions: parsed.actions.slice(0, 3).map((action) => short(String(action), 180)),
+    actions,
     priority: parsed.priority,
     confidence: clamp(parsed.confidence, 0, 1),
   };

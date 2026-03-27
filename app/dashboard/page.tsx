@@ -5,6 +5,8 @@ import { SectionHeader } from '@/components/ui/SectionHeader';
 import { formatCurrency, formatPercent } from '@/lib/utils';
 import { Select } from '@/components/ui/Select';
 import { useSimulation } from '@/src/hooks/useSimulation';
+import { useProactiveAdvisor } from '@/src/hooks/useProactiveAdvisor';
+import { useAdvisorMemory } from '@/src/hooks/useAdvisorMemory';
 import { KPIcard } from '@/components/dashboard/KPIcard';
 import { IncomeExpensesChart } from '@/components/dashboard/charts/IncomeExpensesChart';
 import { AllocationPie } from '@/components/dashboard/charts/AllocationPie';
@@ -37,6 +39,8 @@ export default function DashboardPage() {
   });
   const insightsLayer = simulationLayer.insights;
   const dashboard = simulationLayer.dashboard;
+  const proactiveAdvisor = useProactiveAdvisor();
+  const advisorMemory = useAdvisorMemory();
 
   const incomeExpensesData = useMemo(() => dashboard.cashflow.monthly.map((row) => ({
     month: row.month,
@@ -288,6 +292,73 @@ export default function DashboardPage() {
                 optimizedUsd: row.netWorthUsd,
               }))}
             />
+          </div>
+        </Card>
+
+        <Card className="xl:col-span-3 rounded-xl border border-indigo-600/40 bg-indigo-950/20 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-white">AI Advisor</p>
+          <div className="mt-2 rounded-lg border border-rose-500/50 bg-rose-950/30 p-3">
+            <p className="text-xs uppercase tracking-wide text-rose-200">🔥 What matters most now</p>
+            <p className="mt-1 text-sm text-rose-100">
+              {proactiveAdvisor.topPriority
+                ? `${proactiveAdvisor.topPriority.message} (${Math.round(proactiveAdvisor.topPriority.severity * 100)}% severity)`
+                : 'No critical priority detected right now.'}
+            </p>
+          </div>
+          <p className="mt-1 text-sm text-indigo-100">🧠 AI says: {proactiveAdvisor.aiSummary}</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-indigo-500/30 bg-slate-900/40 p-3">
+              <p className="text-xs uppercase tracking-wide text-indigo-200">🔔 Active alerts</p>
+              <ul className="mt-2 space-y-1 text-sm text-slate-200">
+                {proactiveAdvisor.smartAlerts.slice(0, 3).map((alert) => (
+                  <li key={alert.key}>{alert.message}</li>
+                ))}
+                {proactiveAdvisor.smartAlerts.length === 0 ? <li className="text-slate-400">No active alerts.</li> : null}
+              </ul>
+            </div>
+            <div className="rounded-lg border border-indigo-500/30 bg-slate-900/40 p-3">
+              <p className="text-xs uppercase tracking-wide text-indigo-200">💡 Suggestions</p>
+              <ul className="mt-2 space-y-1 text-sm text-slate-200">
+                {insightsLayer.recommendations.slice(0, 3).map((recommendation) => (
+                  <li key={recommendation.id}>{recommendation.action}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div className="mt-3 rounded-lg border border-indigo-500/30 bg-slate-900/40 p-3">
+            <p className="text-xs uppercase tracking-wide text-indigo-200">📌 Pending recommendations</p>
+            <ul className="mt-2 space-y-2 text-sm text-slate-200">
+              {advisorMemory.pendingRecommendations.slice(0, 3).map((recommendation) => (
+                <li key={recommendation.text} className="flex items-center justify-between gap-2">
+                  <span>{recommendation.text}</span>
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      className="rounded border border-emerald-500/60 px-2 py-1 text-xs text-emerald-300"
+                      onClick={() => advisorMemory.setRecommendationStatus(recommendation.text, 'completed')}
+                    >
+                      Complete
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded border border-amber-500/60 px-2 py-1 text-xs text-amber-300"
+                      onClick={() => advisorMemory.setRecommendationStatus(recommendation.text, 'ignored')}
+                    >
+                      Ignore
+                    </button>
+                  </div>
+                </li>
+              ))}
+              {advisorMemory.pendingRecommendations.length === 0 ? <li className="text-slate-400">No pending recommendations.</li> : null}
+            </ul>
+          </div>
+          <div className="mt-3 rounded-lg border border-indigo-500/30 bg-slate-900/40 p-3">
+            <p className="text-xs uppercase tracking-wide text-indigo-200">Timeline feed</p>
+            <ul className="mt-2 space-y-1 text-sm text-slate-300">
+              {proactiveAdvisor.events.slice(0, 5).map((event, index) => (
+                <li key={`${event.type}-${index}`}>{new Date(event.timestamp).toLocaleDateString()} · {event.message}</li>
+              ))}
+            </ul>
           </div>
         </Card>
       </div>
