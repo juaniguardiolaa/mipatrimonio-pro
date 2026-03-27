@@ -48,7 +48,7 @@ export default function AiAnalysisPage() {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: response.answer,
-        meta: `${response.confidence.toUpperCase()} confidence · sources: ${response.sources.join(', ')}`,
+        meta: `Priority: ${response.priority.toUpperCase()} · Confidence: ${(response.confidence * 100).toFixed(0)}% · Actions: ${response.actions.join(' | ')}`,
       }]);
     } catch {
       setMessages((prev) => [...prev, {

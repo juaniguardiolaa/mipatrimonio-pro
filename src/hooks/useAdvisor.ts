@@ -5,10 +5,35 @@ import { useSimulation } from './useSimulation';
 
 type AdvisorResponse = {
   answer: string;
-  confidence: 'high' | 'medium' | 'low';
-  sources: string[];
-  suggestions?: string[];
+  actions: string[];
+  priority: 'high' | 'medium' | 'low';
+  confidence: number;
 };
+
+type CompactContext = {
+  financialSummary: {
+    netWorthUsd: number;
+    savingsRate: number;
+    allocations: Array<{ assetType: string; percentage: number }>;
+    alerts: Array<{ severity: 'low' | 'medium' | 'high'; message: string }>;
+    recommendations: Array<{ action: string }>;
+    simulation: {
+      yearsToGoal: number | null;
+      expectedReturn: number;
+    };
+    snapshotHash: string;
+  };
+};
+
+function hashString(value: string) {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) + hash) + value.charCodeAt(index);
+  }
+  return String(hash >>> 0);
+}
+
+const compactMessage = (value: string, max = 100) => (value.length <= max ? value : `${value.slice(0, max)}...`);
 
 export function useAdvisor() {
   const dashboard = useDashboard();
@@ -23,57 +48,80 @@ export function useAdvisor() {
   const inFlightRef = useRef<Map<string, Promise<AdvisorResponse>>>(new Map());
   const debounceRef = useRef<number | null>(null);
 
-  const context = useMemo(() => ({
-    financialSummary: {
-      netWorth: dashboard.netWorth,
+  const context = useMemo<CompactContext>(() => {
+    const allocations = [...dashboard.allocation.byType]
+      .sort((a, b) => b.percentage - a.percentage)
+      .slice(0, 3)
+      .map((row) => ({ assetType: row.assetType, percentage: row.percentage }));
+
+    const alerts = [...insights.alerts]
+      .slice(0, 3)
+      .map((alert) => ({ severity: alert.severity, message: compactMessage(alert.message) }));
+
+    const recommendations = [...insights.recommendations]
+      .slice(0, 3)
+      .map((recommendation) => ({ action: compactMessage(recommendation.action, 120) }));
+
+    const fingerprint = {
+      netWorthUsd: dashboard.netWorth.usd,
       savingsRate: dashboard.cashflow.savingsRate,
-      expenses: dashboard.cashflow.totalExpenses,
-      income: dashboard.cashflow.totalIncome,
-      allocation: dashboard.allocation.byType.map((row) => ({
-        assetType: row.assetType,
-        percentage: row.percentage,
-      })),
-      healthScore: insights.healthScore,
-      goalProgress: simulation.goalProgress,
-      simulation: {
-        monthsToGoal: simulation.monthsToGoal,
-        yearsToGoal: simulation.yearsToGoal,
-        optimisticYearsToGoal: simulation.optimisticYearsToGoal,
-        conservativeYearsToGoal: simulation.conservativeYearsToGoal,
+      allocations,
+      alerts,
+      recommendations,
+      yearsToGoal: simulation.yearsToGoal,
+      expectedReturn: simulation.expectedReturn,
+    };
+
+    const snapshotHash = hashString(JSON.stringify(fingerprint));
+
+    return {
+      financialSummary: {
+        netWorthUsd: dashboard.netWorth.usd,
+        savingsRate: dashboard.cashflow.savingsRate,
+        allocations,
+        alerts,
+        recommendations,
+        simulation: {
+          yearsToGoal: simulation.yearsToGoal,
+          expectedReturn: simulation.expectedReturn,
+        },
+        snapshotHash,
       },
-    },
-    alerts: insights.alerts,
-    recommendations: insights.recommendations,
-    insights: insights.insights,
-  }), [
+    };
+  }, [
     dashboard.allocation.byType,
     dashboard.cashflow.savingsRate,
-    dashboard.cashflow.totalExpenses,
-    dashboard.cashflow.totalIncome,
-    dashboard.netWorth,
+    dashboard.netWorth.usd,
     insights.alerts,
-    insights.healthScore,
-    insights.insights,
     insights.recommendations,
-    simulation.conservativeYearsToGoal,
-    simulation.goalProgress,
-    simulation.monthsToGoal,
-    simulation.optimisticYearsToGoal,
+    simulation.expectedReturn,
     simulation.yearsToGoal,
   ]);
 
   const ask = useCallback(async (question: string) => {
-    const normalized = question.trim();
+    const normalized = question.trim().toLowerCase().replace(/\s+/g, ' ');
     if (!normalized) throw new Error('Question is required');
 
-    if (cacheRef.current.has(normalized)) {
-      const cached = cacheRef.current.get(normalized)!;
+    const cacheKey = `${normalized}::${context.financialSummary.snapshotHash}`;
+
+    if (cacheRef.current.has(cacheKey)) {
+      const cached = cacheRef.current.get(cacheKey)!;
       setLastResponse(cached);
       return cached;
     }
 
-    const inFlight = inFlightRef.current.get(normalized);
+    const inFlight = inFlightRef.current.get(cacheKey);
     if (inFlight) return inFlight;
+
+    const payload = {
+      userQuestion: normalized,
+      ...context,
+    };
+
+    const payloadSize = new Blob([JSON.stringify(payload)]).size;
+    if (payloadSize > 2048) {
+      throw new Error('advisor_payload_too_large');
+    }
 
     const promise = (async () => {
       setLoading(true);
@@ -82,18 +130,13 @@ export function useAdvisor() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          userQuestion: normalized,
-          ...context,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        throw new Error(`advisor_request_failed_${response.status}`);
-      }
+      if (!response.ok) throw new Error(`advisor_request_failed_${response.status}`);
 
       const data = await response.json() as AdvisorResponse;
-      cacheRef.current.set(normalized, data);
+      cacheRef.current.set(cacheKey, data);
       setLastResponse(data);
       return data;
     })()
@@ -102,11 +145,11 @@ export function useAdvisor() {
         throw err;
       })
       .finally(() => {
-        inFlightRef.current.delete(normalized);
+        inFlightRef.current.delete(cacheKey);
         setLoading(false);
       });
 
-    inFlightRef.current.set(normalized, promise);
+    inFlightRef.current.set(cacheKey, promise);
     return promise;
   }, [context]);
 
