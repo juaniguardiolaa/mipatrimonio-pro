@@ -22,6 +22,8 @@ export type PriorityItem = {
   message: string;
   type: 'alert' | 'recommendation' | 'insight';
   severity: number;
+  reason: string;
+  confidence: number;
 };
 
 type SmartAlert = {
@@ -151,13 +153,73 @@ export function useProactiveAdvisor() {
       .map((item) => ({ text: item.text, impact: item.impact }));
 
     const priorityPool: PriorityItem[] = [
-      ...smartAlerts.map((item) => ({ message: item.message, type: 'alert' as const, severity: item.level / 3 })),
-      ...pendingRecommendations.map((item) => ({ message: item.text, type: 'recommendation' as const, severity: Math.min(1, item.impact) })),
-      ...filteredByCooldown.map((item) => ({ message: item.message, type: 'insight' as const, severity: item.severityLevel })),
+      ...smartAlerts.map((item) => ({
+        message: item.message,
+        type: 'alert' as const,
+        severity: item.level / 3,
+        reason: '',
+        confidence: 0,
+      })),
+      ...pendingRecommendations.map((item) => ({
+        message: item.text,
+        type: 'recommendation' as const,
+        severity: Math.min(1, item.impact),
+        reason: '',
+        confidence: 0,
+      })),
+      ...filteredByCooldown.map((item) => ({
+        message: item.message,
+        type: 'insight' as const,
+        severity: item.severityLevel,
+        reason: '',
+        confidence: 0,
+      })),
     ];
 
-    const topPriority = [...priorityPool].sort((a, b) => b.severity - a.severity)[0] ?? null;
+    const hasIncome = dashboard.cashflow.totalIncome > 0;
+    const hasExpenses = dashboard.cashflow.totalExpenses > 0;
+    const hasAssets = dashboard.allocation.byType.length > 0;
+    const hasFx = !dashboard.fx.requiresConversion || dashboard.fx.rateAvailable;
+    const dataCompleteness = [hasIncome, hasExpenses, hasAssets, hasFx].filter(Boolean).length / 4;
+
+    const topPriority = [...priorityPool]
+      .map((item) => {
+        const signalStrength = item.severity;
+        const isExpense = item.message.toLowerCase().includes('expense');
+        const isSavings = item.message.toLowerCase().includes('saving');
+        const isAllocation = item.message.toLowerCase().includes('allocation') || item.message.toLowerCase().includes('portfolio');
+        const consistency = (isExpense && dashboard.cashflow.savingsRate < 0.1) || (isSavings && dashboard.cashflow.totalExpenses > dashboard.cashflow.totalIncome) || (isAllocation && (dashboard.allocation.byType[0]?.percentage ?? 0) > 50)
+          ? 0.9
+          : 0.55;
+
+        const confidence = Math.min(1, Math.max(0, (0.4 * dataCompleteness) + (0.3 * signalStrength) + (0.3 * consistency)));
+
+        let reason = 'Based on your current financial trends.';
+        if (isExpense && monthly.length >= 2) {
+          const increase = ((last?.expenses ?? 0) - (prev?.expenses ?? 0)) / Math.max(prev?.expenses ?? 1, 1);
+          reason = `Expenses increased ${(increase * 100).toFixed(1)}% this month, which weakens your savings profile.`;
+        } else if (isAllocation && dashboard.allocation.byType[0]) {
+          const top = dashboard.allocation.byType[0];
+          reason = `${top.percentage.toFixed(1)}% of your portfolio is in ${top.assetType}, which raises concentration risk.`;
+        } else if (item.message.toLowerCase().includes('goal') && simulation.yearsToGoal !== null && simulation.conservativeYearsToGoal !== null) {
+          const delta = simulation.conservativeYearsToGoal - simulation.yearsToGoal;
+          reason = `Your goal timeline worsened by ${delta.toFixed(1)} years under conservative assumptions.`;
+        } else if (isSavings) {
+          reason = `Savings rate is ${(dashboard.cashflow.savingsRate * 100).toFixed(1)}%, below a resilient target.`;
+        }
+
+        return { ...item, reason, confidence };
+      })
+      .sort((a, b) => (b.severity - a.severity) || (b.confidence - a.confidence))[0] ?? null;
+
     console.log('[advisor:v2] priority_computed', { topPriority });
+    if (topPriority) {
+      console.log('[advisor:v2] priority_explained', {
+        type: topPriority.type,
+        reason: topPriority.reason,
+        confidence: topPriority.confidence,
+      });
+    }
 
     const aiSummary = topPriority?.message
       ?? insights.insights[0]?.description

@@ -304,6 +304,19 @@ export default function DashboardPage() {
                 ? `${proactiveAdvisor.topPriority.message} (${Math.round(proactiveAdvisor.topPriority.severity * 100)}% severity)`
                 : 'No critical priority detected right now.'}
             </p>
+            {proactiveAdvisor.topPriority ? (
+              <>
+                <p className="mt-1 text-xs text-rose-200/80">{proactiveAdvisor.topPriority.reason || 'Based on your current financial trends'}</p>
+                <p className="mt-1 text-xs">
+                  {proactiveAdvisor.topPriority.confidence >= 0.8
+                    ? '🟢 High confidence'
+                    : proactiveAdvisor.topPriority.confidence >= 0.5
+                      ? '🟡 Medium confidence'
+                      : '🔴 Low confidence'}
+                  {' '}({Math.round(proactiveAdvisor.topPriority.confidence * 100)}%)
+                </p>
+              </>
+            ) : null}
           </div>
           <p className="mt-1 text-sm text-indigo-100">🧠 AI says: {proactiveAdvisor.aiSummary}</p>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
