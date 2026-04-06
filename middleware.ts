@@ -9,9 +9,11 @@ export function middleware(request: NextRequest) {
     url.searchParams.set('callbackUrl', request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
+ 
   return NextResponse.next();
 }
-
+ 
 export const config = {
   matcher: ['/dashboard/:path*', '/accounts/:path*', '/investments/:path*'],
 };
+ 

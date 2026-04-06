@@ -1,10 +1,11 @@
 import { Asset, AssetType } from '@prisma/client';
-import { getCryptoPrice } from '@/lib/providers/binance';
+// ── FIX: import from the single canonical CoinGecko provider ─────────────────
+import { getCryptoPrice } from '@/lib/providers/coingecko';
 import { getStockPrice } from '@/lib/providers/yahoo';
 import { getBondPrice } from '@/lib/pricing/bonds.service';
 import { getCedearRatio } from '@/lib/pricing/cedear.service';
 import { convertArsToUsd, getFxRate } from '@/lib/pricing/fx.service';
-
+ 
 export type ValuationResult = {
   success: true;
   marketPrice: number;
@@ -16,7 +17,7 @@ export type ValuationResult = {
   timestamp: Date;
   stale: boolean;
 };
-
+ 
 export type ValuationFailure = {
   success: false;
   reason: 'no_price';
@@ -29,12 +30,23 @@ export type ValuationFailure = {
   source: string;
   timestamp: Date;
 };
-
+ 
 export type ValuationOutcome = ValuationResult | ValuationFailure;
-
-function buildFallbackValuation(asset: Pick<Asset, 'symbol' | 'quantity' | 'currency' | 'marketPrice' | 'marketPriceUsd' | 'marketValue' | 'marketValueUsd' | 'lastPriceUpdate'>): ValuationFailure {
-  console.warn('Fallback for', asset.symbol);
-
+ 
+function buildFallbackValuation(
+  asset: Pick<
+    Asset,
+    | 'symbol'
+    | 'quantity'
+    | 'currency'
+    | 'marketPrice'
+    | 'marketPriceUsd'
+    | 'marketValue'
+    | 'marketValueUsd'
+    | 'lastPriceUpdate'
+  >,
+): ValuationFailure {
+  console.warn('[valuation] fallback_used', { symbol: asset.symbol });
   return {
     success: false,
     reason: 'no_price',
@@ -48,28 +60,41 @@ function buildFallbackValuation(asset: Pick<Asset, 'symbol' | 'quantity' | 'curr
     timestamp: asset.lastPriceUpdate || new Date(),
   };
 }
-
-function buildSuccessValuation(input: Omit<ValuationResult, 'success'>): ValuationResult {
+ 
+function buildSuccessValuation(
+  input: Omit<ValuationResult, 'success'>,
+): ValuationResult {
   return { success: true, ...input };
 }
-
+ 
 export async function valuateAsset(
-  asset: Pick<Asset, 'symbol' | 'assetType' | 'quantity' | 'currency' | 'cedearRatio' | 'marketPrice' | 'marketPriceUsd' | 'marketValue' | 'marketValueUsd' | 'lastPriceUpdate'>,
+  asset: Pick<
+    Asset,
+    | 'symbol'
+    | 'assetType'
+    | 'quantity'
+    | 'currency'
+    | 'cedearRatio'
+    | 'marketPrice'
+    | 'marketPriceUsd'
+    | 'marketValue'
+    | 'marketValueUsd'
+    | 'lastPriceUpdate'
+  >,
 ): Promise<ValuationOutcome> {
   const symbol = asset.symbol.toUpperCase();
   const ccl = await getFxRate('USD_ARS_CCL');
   const now = new Date();
-
+ 
+  // ── CRYPTO ────────────────────────────────────────────────────────────────
   if (asset.assetType === AssetType.CRYPTO) {
     const quote = await getCryptoPrice(symbol);
-    const priceUsd = quote?.priceUsd ?? null;
-    console.log('Price result:', priceUsd);
-    if (!quote || !priceUsd) return buildFallbackValuation(asset);
-
+    if (!quote) return buildFallbackValuation(asset);
+ 
+    const priceUsd = quote.priceUsd;
     const fx = ccl && ccl > 0 ? ccl : 1;
     const priceArs = priceUsd * fx;
-    console.log('Market data quote:', { symbol, priceUsd, source: quote.source });
-
+ 
     return buildSuccessValuation({
       marketPrice: priceArs,
       marketPriceUsd: priceUsd,
@@ -81,42 +106,49 @@ export async function valuateAsset(
       stale: false,
     });
   }
-
+ 
+  // ── STOCK / ETF ───────────────────────────────────────────────────────────
   if (asset.assetType === AssetType.STOCK || asset.assetType === AssetType.ETF) {
     const quote = await getStockPrice(symbol);
-    const quotedPrice = quote?.priceUsd ?? null;
-    console.log('Price result:', quotedPrice);
-    if (!quote || !quotedPrice) return buildFallbackValuation(asset);
-
-    const priceUsd = quote.currency === 'USD' ? quotedPrice : (await convertArsToUsd(quotedPrice)) ?? null;
+    if (!quote) return buildFallbackValuation(asset);
+ 
+    const priceUsd =
+      quote.currency === 'USD'
+        ? quote.priceUsd
+        : (await convertArsToUsd(quote.priceUsd)) ?? null;
+ 
     if (!priceUsd) return buildFallbackValuation(asset);
-
-    const priceArs = quote.currency === 'USD' ? priceUsd * (ccl && ccl > 0 ? ccl : 1) : quote.priceUsd;
-    console.log('Market data quote:', { symbol, priceUsd, source: quote.source });
-
+ 
+    const priceArs = ccl && ccl > 0 ? priceUsd * ccl : priceUsd;
+ 
     return buildSuccessValuation({
       marketPrice: priceArs,
       marketPriceUsd: priceUsd,
       marketValue: priceArs * asset.quantity,
       marketValueUsd: priceUsd * asset.quantity,
       currency: quote.currency,
-      source: quote.source,
+      source: 'YAHOO_FINANCE',
       timestamp: quote.timestamp,
       stale: false,
     });
   }
-
+ 
+  // ── CEDEAR ────────────────────────────────────────────────────────────────
   if (asset.assetType === AssetType.CEDEAR) {
     const quote = await getStockPrice(symbol);
-    const quotedPrice = quote?.priceUsd ?? null;
-    console.log('Price result:', quotedPrice);
-    if (!quote || !quotedPrice || !ccl) return buildFallbackValuation(asset);
-
-    const ratio = asset.cedearRatio || getCedearRatio(symbol);
-    const underlyingUsdPerCedear = quotedPrice / ratio;
+    if (!quote || !ccl) return buildFallbackValuation(asset);
+ 
+    const ratio = asset.cedearRatio ?? getCedearRatio(symbol);
+    if (!ratio || ratio <= 0) {
+      console.warn('[valuation] cedear_ratio_missing', { symbol });
+      return buildFallbackValuation(asset);
+    }
+ 
+    // priceUsd here is the underlying (e.g. AAPL) stock price in USD.
+    // One CEDEAR represents (1/ratio) of one underlying share.
+    const underlyingUsdPerCedear = quote.priceUsd / ratio;
     const priceArs = underlyingUsdPerCedear * ccl;
-    console.log('Market data quote:', { symbol, priceUsd: underlyingUsdPerCedear, source: `${quote.source}+CCL/CEDEAR_RATIO` });
-
+ 
     return buildSuccessValuation({
       marketPrice: priceArs,
       marketPriceUsd: underlyingUsdPerCedear,
@@ -128,22 +160,25 @@ export async function valuateAsset(
       stale: false,
     });
   }
-
+ 
+  // ── BOND ──────────────────────────────────────────────────────────────────
   if (asset.assetType === AssetType.BOND) {
     const bond = await getBondPrice(symbol);
-    const bondPrice = bond?.price ?? null;
-    console.log('Price result:', bondPrice);
-    if (!bond || !bondPrice) return buildFallbackValuation(asset);
-
-    const marketPriceUsd = bond.currency === 'USD' ? bondPrice : (await convertArsToUsd(bondPrice)) ?? null;
+    if (!bond) return buildFallbackValuation(asset);
+ 
+    const marketPriceUsd =
+      bond.currency === 'USD'
+        ? bond.price
+        : (await convertArsToUsd(bond.price)) ?? null;
+ 
     if (!marketPriceUsd) return buildFallbackValuation(asset);
-
-    const marketPriceArs = bond.currency === 'USD' ? marketPriceUsd * (ccl && ccl > 0 ? ccl : 1) : bondPrice;
-    console.log('Market data quote:', { symbol, priceUsd: marketPriceUsd, source: 'IOL_BONDS' });
-
+ 
+    const marketPriceArs =
+      bond.currency === 'USD' ? marketPriceUsd * (ccl && ccl > 0 ? ccl : 1) : bond.price;
+ 
     return buildSuccessValuation({
       marketPrice: marketPriceArs,
-      marketPriceUsd: marketPriceUsd,
+      marketPriceUsd,
       marketValue: marketPriceArs * asset.quantity,
       marketValueUsd: marketPriceUsd * asset.quantity,
       currency: bond.currency,
@@ -152,13 +187,17 @@ export async function valuateAsset(
       stale: false,
     });
   }
-
+ 
+  // ── CASH ──────────────────────────────────────────────────────────────────
   if (asset.assetType === AssetType.CASH) {
     const fx = ccl && ccl > 0 ? ccl : 1;
-    const arsValue = asset.currency === 'ARS' ? asset.quantity : asset.quantity * fx;
-    const usdValue = asset.currency === 'USD' ? asset.quantity : (await convertArsToUsd(asset.quantity)) ?? 0;
-    console.log('Price result:', usdValue);
-
+    const arsValue =
+      asset.currency === 'ARS' ? asset.quantity : asset.quantity * fx;
+    const usdValue =
+      asset.currency === 'USD'
+        ? asset.quantity
+        : (await convertArsToUsd(asset.quantity)) ?? 0;
+ 
     return buildSuccessValuation({
       marketPrice: arsValue,
       marketPriceUsd: usdValue,
@@ -170,6 +209,7 @@ export async function valuateAsset(
       stale: false,
     });
   }
-
+ 
   return buildFallbackValuation(asset);
 }
+ 
