@@ -135,16 +135,20 @@ export function useDashboard() {
  
     const cashUsd = usdAccountsTotal + (ccl && ccl > 0 ? arsAccountsTotal / ccl : 0);
     const cashArs = arsAccountsTotal + (ccl && ccl > 0 ? usdAccountsTotal * ccl : 0);
- 
     const fxRateAvailable = Boolean(ccl && ccl > 0);
-    const requiresFx =
-      arsAccountsTotal > 0 ||
-      assets.some((a) => {
-        const cur = (a.currency || '').toUpperCase();
-        return cur === 'ARS' || a.assetType === 'CEDEAR';
-      });
- 
-    // ── Net worth ─────────────────────────────────────────────────────────
+    const requiresFx = arsAccountsTotal > 0 || assets.some((asset) => {
+      const currency = (asset.currency || '').toUpperCase();
+      return currency === 'ARS' || asset.assetType === 'CEDEAR';
+    });
+
+    console.log('[dashboard:cash]', {
+      usdAccountsTotal: roundMoney(usdAccountsTotal),
+      arsAccountsTotal: roundMoney(arsAccountsTotal),
+      ccl,
+      cashUsd: roundMoney(cashUsd),
+      cashArs: roundMoney(cashArs),
+    });
+
     const netWorthUsd = safeSum([portfolio.totals.totalUsd, cashUsd]);
     const netWorthArs = safeSum([portfolio.totals.totalArs, cashArs]);
  

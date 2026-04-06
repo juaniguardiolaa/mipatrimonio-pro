@@ -30,6 +30,8 @@ model User {
   assets          Asset[]
   netWorthHistory NetWorthHistory[]
   snapshots       Snapshot[]
+  incomes         Income[]
+  expenses        Expense[]
 }
 
 model Account {
@@ -176,4 +178,43 @@ model Snapshot {
 
   @@unique([userId, date])
   @@index([userId, date(sort: Desc)])
+}
+
+
+model Income {
+  id        String   @id @default(cuid())
+  userId    String
+  source    String
+  category  String   @default("Other")
+  amount    Float
+  currency  String   @default("USD")
+  date      DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date(sort: Desc)])
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  category  String   @default("Other")
+  amount    Float
+  currency  String   @default("USD")
+  date      DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date(sort: Desc)])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt
 }

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { getCryptoPricesBatch } from '@/lib/providers/coingecko'; // Note: only usable server-side
-// For the client we use the same logic but via fetch — see fetchCryptoBatchPricesUsd below
- 
+
 type AssetForPricing = {
   id: string;
   symbol: string;
