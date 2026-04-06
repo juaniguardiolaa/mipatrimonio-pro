@@ -273,4 +273,3 @@ export function useSimulation(input: SimulationInput = {}) {
     input.years,
   ]);
 }
- 
