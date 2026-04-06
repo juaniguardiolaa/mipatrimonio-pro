@@ -20,8 +20,6 @@ const VOLATILITY: Record<string, number> = {
 };
  
 const DEFAULT_INFLATION = 0.03;
-// Fallback rate used only when CCL is unavailable and all assets are USD-only.
-// It keeps simulation output non-zero while being clearly marked as an estimate.
 const FALLBACK_FX_RATE = 1;
  
 type SimulationInput = {
@@ -48,27 +46,37 @@ type ScenarioResult = {
   realReturn: number;
 };
  
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
  
-const safeDivide = (numerator: number, denominator: number) => {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
-  return numerator / denominator;
+const safeDivide = (n: number, d: number) => {
+  if (!Number.isFinite(n) || !Number.isFinite(d) || d <= 0) return 0;
+  return n / d;
 };
  
-function round2(value: number) {
-  return Math.round(value * 100) / 100;
+function round2(v: number) {
+  return Math.round(v * 100) / 100;
 }
  
 function addMonths(start: Date, months: number) {
-  const date = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
-  date.setUTCMonth(date.getUTCMonth() + months);
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
  
-function seededRandom(seed: number) {
-  const value = Math.sin(seed) * 10000;
-  return value - Math.floor(value);
-}
+// ── FIX: seededRandom and per-month jitter removed ───────────────────────────
+// Old code applied noise via Math.sin(seed) with fixed seeds (11,29,47,71).
+// Problems:
+//   1. Every user always saw the exact same trajectory — not real uncertainty.
+//   2. Same annualVolatility across all scenarios → identical noise amplitude,
+//      only phase differed (visually indistinguishable from pure noise).
+//   3. The jitter could produce negative returns in early months, misleading
+//      users about the expected path.
+//
+// Scenarios are now differentiated by what is meaningful and explainable:
+//   base        → baseline savings, base expected return
+//   optimized   → expense reduction applied to savings, base return
+//   optimistic  → optimized savings + return × 1.2  (better market)
+//   conservative→ optimized savings + return × 0.8  (weaker market)
  
 function runScenario(options: {
   months: number;
@@ -78,8 +86,6 @@ function runScenario(options: {
   expectedReturn: number;
   realReturn: number;
   targetAmountUsd?: number;
-  variabilitySeed?: number;
-  annualVolatility: number;
 }): ScenarioResult {
   const {
     months,
@@ -89,23 +95,18 @@ function runScenario(options: {
     expectedReturn,
     realReturn,
     targetAmountUsd,
-    variabilitySeed = 1,
-    annualVolatility,
   } = options;
  
   const now = new Date();
   let currentUsd = startNetWorthUsd;
   let monthsToGoal: number | null = null;
- 
   const simulation: SimulationPoint[] = [];
  
-  for (let index = 1; index <= months; index += 1) {
-    const annualJitter =
-      ((seededRandom((variabilitySeed * 997) + index) * 2) - 1) * annualVolatility;
-    const jitteredRealAnnualReturn = realReturn + annualJitter;
-    const monthlyRealReturn = (1 + jitteredRealAnnualReturn) ** (1 / 12) - 1;
-    currentUsd = (currentUsd * (1 + monthlyRealReturn)) + monthlyContribution;
+  // Pre-compute once outside the loop
+  const monthlyRealReturn = (1 + realReturn) ** (1 / 12) - 1;
  
+  for (let index = 1; index <= months; index++) {
+    currentUsd = currentUsd * (1 + monthlyRealReturn) + monthlyContribution;
     simulation.push({
       month: addMonths(now, index),
       netWorthUsd: round2(currentUsd),
@@ -123,7 +124,6 @@ function runScenario(options: {
   }
  
   const yearsToGoal = monthsToGoal === null ? null : round2(monthsToGoal / 12);
- 
   console.log('[simulation] goalComputed', { targetAmountUsd, monthsToGoal, yearsToGoal });
  
   return {
@@ -139,7 +139,6 @@ function runScenario(options: {
 export function useSimulation(input: SimulationInput = {}) {
   const dashboard = useDashboard();
   const insightsLayer = useFinancialInsights();
-  // ── FIX: use real CCL from the FX hook, never infer from net worth ratio ──
   const { ccl } = useFX();
  
   return useMemo(() => {
@@ -183,53 +182,44 @@ export function useSimulation(input: SimulationInput = {}) {
       baselineSavings + monthlyExpenses * expenseReduction,
     );
  
-    // ── FIX: use the real CCL rate; fall back to 1 only when CCL is unavailable
-    // and warn so the UI can show a disclaimer.
     const fxRate = ccl && ccl > 0 ? ccl : FALLBACK_FX_RATE;
     if (!ccl) {
-      console.warn(
-        '[simulation] ccl_unavailable — ARS projections will use fxRate=1 (placeholder)',
-      );
+      console.warn('[simulation] ccl_unavailable — ARS projections use fxRate=1');
     }
  
-    const sharedScenarioBase = {
+    const sharedBase = {
       months,
       startNetWorthUsd: Math.max(0, dashboard.netWorth.usd),
       fxRate,
       targetAmountUsd: input.targetAmountUsd,
-      annualVolatility: weightedAnnualVolatility,
     };
  
     const baseScenario = runScenario({
-      ...sharedScenarioBase,
+      ...sharedBase,
       monthlyContribution: Math.max(0, baselineSavings),
       expectedReturn,
       realReturn,
-      variabilitySeed: 11,
     });
  
     const optimizedScenario = runScenario({
-      ...sharedScenarioBase,
+      ...sharedBase,
       monthlyContribution: Math.max(0, optimizedSavings),
       expectedReturn,
       realReturn,
-      variabilitySeed: 29,
     });
  
     const optimisticScenario = runScenario({
-      ...sharedScenarioBase,
+      ...sharedBase,
       monthlyContribution: Math.max(0, optimizedSavings),
       expectedReturn: expectedReturn * 1.2,
       realReturn: (1 + expectedReturn * 1.2) / (1 + inflation) - 1,
-      variabilitySeed: 47,
     });
  
     const conservativeScenario = runScenario({
-      ...sharedScenarioBase,
+      ...sharedBase,
       monthlyContribution: Math.max(0, optimizedSavings),
       expectedReturn: expectedReturn * 0.8,
       realReturn: (1 + expectedReturn * 0.8) / (1 + inflation) - 1,
-      variabilitySeed: 71,
     });
  
     const goalTarget =
@@ -243,14 +233,13 @@ export function useSimulation(input: SimulationInput = {}) {
  
     console.log('[simulation] run', {
       years,
-      expectedReturn,
-      realReturn,
+      expectedReturn: round2(expectedReturn * 100) + '%',
+      realReturn: round2(realReturn * 100) + '%',
       baselineSavings,
       optimizedSavings,
       fxRate,
       cclSource: ccl ? 'real' : 'fallback',
-      healthScore: insightsLayer.healthScore,
-      annualVolatility: weightedAnnualVolatility,
+      annualVolatility: round2(weightedAnnualVolatility * 100) + '%',
     });
  
     return {
@@ -268,6 +257,7 @@ export function useSimulation(input: SimulationInput = {}) {
       remainingAmount,
       baseScenario,
       optimizedScenario,
+      annualVolatility: weightedAnnualVolatility,
       fxRateUsed: fxRate,
       fxRateIsReal: ccl !== null,
     };
@@ -283,3 +273,4 @@ export function useSimulation(input: SimulationInput = {}) {
     input.years,
   ]);
 }
+ 
