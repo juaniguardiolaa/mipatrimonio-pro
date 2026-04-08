@@ -10,6 +10,7 @@ type AssetInput = {
   quantity: number;
   purchasePrice: number;
   currency: string;
+  purchaseCcl?: number | null;
   cedearRatio?: number | null;
 };
  
@@ -35,136 +36,91 @@ export function usePortfolio(assets: AssetInput[]) {
   useEffect(() => {
     if (ccl === null) console.warn('[fx:missing] CCL not available — ARS values will be null');
   }, [ccl]);
- 
-  const positions = useMemo(
-    () =>
-      assets.map((asset) => {
-        const priceData = prices[asset.id];
-        const rawPriceUsd = priceData?.price ?? null;
-        const isRealPrice = priceData?.source === 'market';
- 
-        // ─── Market prices ────────────────────────────────────────────────
-        let marketPriceUsd: number | null = null;
-        let marketPriceArs: number | null = null;
- 
-        if (asset.assetType === 'CASH') {
-          if (asset.currency === 'ARS') {
-            // 1 ARS = 1 ARS; USD equivalent needs CCL
-            marketPriceArs = 1;
-            marketPriceUsd = ccl && ccl > 0 ? 1 / ccl : null;
-          } else {
-            // USD cash
-            marketPriceUsd = 1;
-            marketPriceArs = ccl ?? null;
-          }
-        } else if (asset.assetType === 'CEDEAR') {
-          // CEDEAR formula: priceArs = (underlyingUsdPrice / ratio) * CCL
-          // rawPriceUsd here is the underlying stock price in USD (from Yahoo)
-          const ratio =
-            asset.cedearRatio && asset.cedearRatio > 0 ? asset.cedearRatio : null;
- 
-          if (!ratio) {
-            console.warn('[cedear:missing-ratio]', { symbol: asset.symbol });
-          }
- 
-          if (rawPriceUsd && ratio && ccl && isRealPrice) {
-            marketPriceUsd = rawPriceUsd / ratio; // USD per CEDEAR
-            marketPriceArs = marketPriceUsd * ccl; // ARS per CEDEAR
-          } else {
-            // Can't price without all three inputs
-            marketPriceUsd = null;
-            marketPriceArs = null;
-            if (!rawPriceUsd)
-              console.warn('[cedear:missing-data] no underlying price', { symbol: asset.symbol });
-            if (!ccl)
-              console.warn('[cedear:missing-data] no CCL rate', { symbol: asset.symbol });
-          }
-        } else {
-          // STOCK, ETF, BOND, CRYPTO — priced in USD, convert to ARS via CCL
-          marketPriceUsd = isRealPrice ? rawPriceUsd : null;
-          marketPriceArs = marketPriceUsd !== null && ccl ? marketPriceUsd * ccl : null;
-        }
- 
-        // ─── Market values ────────────────────────────────────────────────
-        const marketValueUsd =
-          marketPriceUsd !== null ? marketPriceUsd * asset.quantity : null;
-        const marketValueArs =
-          marketPriceArs !== null ? marketPriceArs * asset.quantity : null;
- 
-        // ─── Cost basis ───────────────────────────────────────────────────
-        //
-        // CEDEAR:  purchasePrice is stored in ARS/CEDEAR (user entered ARS price)
-        // CASH:    purchasePrice is 1 (nominal), cost basis = quantity in that currency
-        // Others:  purchasePrice currency follows asset.currency field
-        //
-        let costBasisUsd: number | null = null;
-        let costBasisArs: number | null = null;
- 
-        if (asset.assetType === 'CEDEAR') {
-          // purchasePrice is in ARS per CEDEAR
-          costBasisArs = asset.purchasePrice * asset.quantity;
-          costBasisUsd = ccl && ccl > 0 ? costBasisArs / ccl : null;
-        } else if (asset.assetType === 'CASH') {
-          if (asset.currency === 'ARS') {
-            costBasisArs = asset.quantity;
-            costBasisUsd = ccl && ccl > 0 ? costBasisArs / ccl : null;
-          } else {
-            costBasisUsd = asset.quantity;
-            costBasisArs = ccl ? costBasisUsd * ccl : null;
-          }
-        } else if (asset.currency === 'USD') {
-          costBasisUsd = asset.purchasePrice * asset.quantity;
-          costBasisArs = ccl ? costBasisUsd * ccl : null;
-        } else {
-          // ARS-denominated non-CEDEAR asset (e.g. domestic bond in ARS)
-          costBasisArs = asset.purchasePrice * asset.quantity;
-          costBasisUsd = ccl && ccl > 0 ? costBasisArs / ccl : null;
-        }
- 
-        // ─── PnL ──────────────────────────────────────────────────────────
-        const profitLossUsd =
-          marketValueUsd !== null && costBasisUsd !== null
-            ? marketValueUsd - costBasisUsd
-            : null;
-        const profitLossArs =
-          marketValueArs !== null && costBasisArs !== null
-            ? marketValueArs - costBasisArs
-            : null;
- 
-        // ROI is always computed in USD to avoid CCL noise; fall back to ARS ratio
-        const roiPercent =
-          costBasisUsd && costBasisUsd > 0 && profitLossUsd !== null
-            ? (profitLossUsd / costBasisUsd) * 100
-            : costBasisArs && costBasisArs > 0 && profitLossArs !== null
-              ? (profitLossArs / costBasisArs) * 100
-              : 0;
- 
-        return {
-          ...asset,
-          ticker: asset.ticker || asset.symbol,
-          // Expose both naming conventions used across the app
-          marketPriceUsd: roundMoney(marketPriceUsd),
-          marketPriceArs: roundMoney(marketPriceArs),
-          currentPrice: roundMoney(marketPriceArs),
-          currentPriceUsd: roundMoney(marketPriceUsd),
-          marketValueUsd: roundMoney(marketValueUsd),
-          marketValueArs: roundMoney(marketValueArs),
-          marketValue: roundMoney(marketValueArs) ?? 0,
-          profitLossUsd: roundMoney(profitLossUsd),
-          profitLossArs: roundMoney(profitLossArs),
-          profitLoss: roundMoney(profitLossArs) ?? 0,
-          costBasisUsd: roundMoney(costBasisUsd),
-          costBasisArs: roundMoney(costBasisArs),
-          costBasis: roundMoney(costBasisArs) ?? 0,
-          roiPercent,
-          isRealPrice,
-          pnl: roundMoney(profitLossArs) ?? 0,
-          pnlPct: roiPercent,
-        };
-      }),
-    [assets, ccl, prices],
-  );
- 
+
+  const positions = useMemo(() => assets.map((asset) => {
+    const priceData = prices[asset.id];
+    const marketPriceUsdRaw = priceData?.price ?? null;
+    const isRealPrice = priceData?.source === 'market';
+    const effectivePriceUsd = isRealPrice ? marketPriceUsdRaw : null;
+
+    let marketPriceUsd: number | null = marketPriceUsdRaw;
+    let marketPriceArs: number | null = null;
+    let effectivePriceArs: number | null = null;
+
+    if (asset.assetType === 'CASH') {
+      if (asset.currency === 'ARS') {
+        marketPriceArs = 1;
+        marketPriceUsd = ccl ? 1 / ccl : null;
+      } else if (asset.currency === 'USD') {
+        marketPriceUsd = 1;
+        marketPriceArs = ccl ? ccl : null;
+      }
+    } else if (asset.assetType === 'CEDEAR') {
+      const ratio = asset.cedearRatio && asset.cedearRatio > 0 ? asset.cedearRatio : 1;
+      if (!effectivePriceUsd || !ccl) {
+        console.warn('[cedear:missing-data]', { symbol: asset.symbol });
+        marketPriceArs = null;
+      } else {
+        marketPriceArs = (effectivePriceUsd / ratio) * ccl;
+      }
+    } else {
+      marketPriceArs = ccl && marketPriceUsd !== null ? marketPriceUsd * ccl : null;
+    }
+
+    effectivePriceArs = ccl && effectivePriceUsd !== null ? effectivePriceUsd * ccl : null;
+    const pnlEligiblePriceUsd = asset.assetType === 'CASH' ? marketPriceUsd : effectivePriceUsd;
+    const pnlEligiblePriceArs = asset.assetType === 'CEDEAR'
+      ? marketPriceArs
+      : asset.assetType === 'CASH'
+        ? marketPriceArs
+        : effectivePriceArs;
+
+    const marketValueUsd = pnlEligiblePriceUsd !== null ? pnlEligiblePriceUsd * asset.quantity : null;
+    const marketValueArs = asset.assetType === 'CEDEAR'
+      ? marketPriceArs !== null ? marketPriceArs * asset.quantity : null
+      : pnlEligiblePriceArs !== null ? pnlEligiblePriceArs * asset.quantity : null;
+
+    // Base currency: USD (all calculations start in USD)
+    const costBasisArsRaw = asset.purchasePrice * asset.quantity;
+    const basisCcl = asset.purchaseCcl && asset.purchaseCcl > 0 ? asset.purchaseCcl : ccl;
+    const costBasisUsd = asset.currency === 'USD'
+      ? asset.purchasePrice * asset.quantity
+      : basisCcl && basisCcl > 0
+        ? costBasisArsRaw / basisCcl
+        : null;
+    const costBasisArs = costBasisUsd !== null && ccl ? costBasisUsd * ccl : null;
+
+    const profitLossUsd = marketValueUsd !== null && costBasisUsd !== null ? marketValueUsd - costBasisUsd : null;
+    const profitLossArs = profitLossUsd !== null && ccl ? profitLossUsd * ccl : null;
+    const roiPercent: number | null = costBasisUsd && costBasisUsd > 0 && profitLossUsd !== null
+      ? (profitLossUsd / costBasisUsd) * 100
+      : costBasisArs && costBasisArs > 0 && profitLossArs !== null
+        ? (profitLossArs / costBasisArs) * 100
+        : null;
+
+    return {
+      ...asset,
+      ticker: asset.ticker || asset.symbol,
+      marketPriceUsd: roundMoney(marketPriceUsd),
+      marketPriceArs: roundMoney(marketPriceArs),
+      currentPrice: roundMoney(marketPriceArs),
+      currentPriceUsd: roundMoney(marketPriceUsd),
+      marketValueUsd: roundMoney(marketValueUsd),
+      marketValueArs: roundMoney(marketValueArs),
+      marketValue: roundMoney(marketValueArs) ?? 0,
+      profitLossUsd: roundMoney(profitLossUsd),
+      profitLossArs: roundMoney(profitLossArs),
+      profitLoss: roundMoney(profitLossArs) ?? 0,
+      costBasisUsd: roundMoney(costBasisUsd),
+      costBasisArs: roundMoney(costBasisArs),
+      costBasis: roundMoney(costBasisArs) ?? 0,
+      roiPercent,
+      isRealPrice,
+      pnl: roundMoney(profitLossArs) ?? 0,
+      pnlPct: roiPercent ?? 0,
+    };
+  }), [assets, ccl, prices]);
+
   const totals = useMemo(() => {
     const validPositions = positions.filter((p) => isValidAsset(p));
     return {

@@ -22,7 +22,17 @@ type RawAsset = {
   quantity: number;
   purchasePrice: number;
   currency: string;
-  cedearRatio?: number | null;
+  currentPrice: number | null;
+  currentPriceUsd: number | null;
+  costBasis: number;
+  costBasisArs: number | null;
+  marketValue: number;
+  marketValueArs: number | null;
+  marketValueUsd: number | null;
+  profitLoss: number;
+  profitLossArs: number | null;
+  roiPercent: number | null;
+  isRealPrice: boolean;
 };
  
 type Account = { id: string; name: string; institution: string };
@@ -66,18 +76,20 @@ export default function InvestmentsPage() {
   async function onCreateAsset(e: FormEvent) {
     e.preventDefault();
     setError('');
+
+    let purchaseCcl: number | null = null;
+    if (assetType === 'CEDEAR') {
+      const fxRes = await fetch('/api/fx/ccl', { cache: 'no-store', credentials: 'include' });
+      const fxData = await fxRes.json().catch(() => ({}));
+      const value = Number((fxData as any).ccl ?? null);
+      purchaseCcl = Number.isFinite(value) && value > 0 ? value : null;
+    }
+
     const res = await fetch('/api/assets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({
-        symbol,
-        assetType,
-        quantity: Number(quantity),
-        purchasePrice: Number(purchasePrice),
-        currency: assetType === 'CEDEAR' ? 'ARS' : 'USD',
-        accountId: accountId || null,
-      }),
+      body: JSON.stringify({ symbol, assetType, quantity: Number(quantity), purchasePrice: Number(purchasePrice), purchaseCcl, currency: 'ARS', accountId: accountId || null }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -230,68 +242,26 @@ export default function InvestmentsPage() {
             render: (row) => <Badge variant="primary">{row.assetType}</Badge>,
           },
           { key: 'quantity', label: 'Cantidad', sortable: true },
-          {
-            key: 'currentPrice',
-            label: 'Precio ARS',
-            sortable: true,
-            render: (row) =>
-              row.currentPrice === null
-                ? '—'
-                : row.isRealPrice
-                  ? formatCurrency(row.currentPrice, 'ARS')
-                  : `${formatCurrency(row.currentPrice, 'ARS')} ⚠`,
-          },
-          {
-            key: 'currentPriceUsd',
-            label: 'Precio USD',
-            sortable: true,
-            render: (row) =>
-              row.currentPriceUsd === null
-                ? '—'
-                : row.isRealPrice
-                  ? formatCurrency(row.currentPriceUsd, 'USD')
-                  : `${formatCurrency(row.currentPriceUsd, 'USD')} ⚠ estimado`,
-          },
-          {
-            key: 'marketValueArs',
-            label: 'Valor ARS',
-            sortable: true,
-            render: (row) =>
-              row.marketValueArs === null ? '—' : formatCurrency(row.marketValueArs, 'ARS'),
-          },
-          {
-            key: 'marketValueUsd',
-            label: 'Valor USD',
-            sortable: true,
-            render: (row) =>
-              row.marketValueUsd === null ? '—' : formatCurrency(row.marketValueUsd, 'USD'),
-          },
-          {
-            key: 'profitLossArs',
-            label: 'Ganancia ARS',
-            sortable: true,
-            render: (row) =>
-              row.profitLossArs === null ? (
-                '—'
-              ) : (
-                <Badge variant={row.profitLossArs >= 0 ? 'success' : 'danger'}>
-                  {formatCurrency(row.profitLossArs, 'ARS')}
-                </Badge>
-              ),
-          },
-          {
-            key: 'roiPercent',
-            label: 'ROI',
-            sortable: true,
-            render: (row) => (
-              <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>
-                {formatPercent(row.roiPercent)}
-              </Badge>
-            ),
-          },
+          { key: 'currentPrice', label: 'Precio ARS', sortable: true, render: (row) => row.currentPrice === null ? '—' : row.isRealPrice ? formatCurrency(row.currentPrice, 'ARS') : `${formatCurrency(row.currentPrice, 'ARS')} ⚠` },
+          { key: 'currentPriceUsd', label: 'Precio USD', sortable: true, render: (row) => row.currentPriceUsd === null ? '—' : row.isRealPrice ? formatCurrency(row.currentPriceUsd, 'USD') : `${formatCurrency(row.currentPriceUsd, 'USD')} ⚠ Precio no actualizado` },
+          { key: 'marketValueArs', label: 'Valor ARS', sortable: true, render: (row) => row.marketValueArs === null ? '—' : formatCurrency(row.marketValueArs, 'ARS') },
+          { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => row.marketValueUsd === null ? '—' : formatCurrency(row.marketValueUsd, 'USD') },
+          { key: 'profitLossArs', label: 'Ganancia ARS', sortable: true, render: (row) => row.profitLossArs === null ? '—' : <Badge variant={row.profitLossArs >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLossArs, 'ARS')}</Badge> },
+          { key: 'roiPercent', label: 'ROI', sortable: true, render: (row) => (row.roiPercent === null ? '—' : <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>{formatPercent(row.roiPercent)}</Badge>) },
         ]}
         rows={positions}
       />
+
+      {(() => {
+        const bondCount = positions.filter((position) => position.assetType === 'BOND').length;
+        const otherStaleCount = positions.filter((position) => !position.isRealPrice && position.assetType !== 'BOND').length;
+        return (
+          <div className="space-y-2">
+            {bondCount > 0 ? <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-700">⚠ {bondCount} bono{bondCount > 1 ? 's' : ''} valorizado{bondCount > 1 ? 's' : ''} a precio de compra (sin feed de precios de mercado).</div> : null}
+            {otherStaleCount > 0 ? <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-700">⚠ {otherStaleCount} posición{otherStaleCount > 1 ? 'es' : ''} sin precio de mercado actualizado.</div> : null}
+          </div>
+        );
+      })()}
     </div>
   );
 }

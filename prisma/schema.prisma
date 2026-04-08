@@ -115,6 +115,7 @@ model Asset {
   assetType       AssetType  @default(STOCK)
   quantity        Float
   purchasePrice   Float
+  purchaseCcl     Float?
   currency        String     @default("ARS")
   cedearRatio     Float?
   marketPrice     Float?

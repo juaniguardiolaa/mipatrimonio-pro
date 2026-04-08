@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useDashboard } from './useDashboard';
 import { useAdvisorMemory } from './useAdvisorMemory';
 
@@ -72,13 +72,15 @@ function nowMonthKey() {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-export function useFinancialInsights() {
-  const dashboard = useDashboard();
+export function useFinancialInsights(dashboardOverride?: ReturnType<typeof useDashboard>) {
+  const dashboardFromHook = useDashboard();
+  const dashboard = dashboardOverride ?? dashboardFromHook;
   const advisorMemory = useAdvisorMemory();
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const snapshotSyncedRef = useRef(false);
 
   useEffect(() => {
-    if (dashboard.loading) return;
+    if (dashboard.loading || snapshotSyncedRef.current) return;
 
     let mounted = true;
 
@@ -112,11 +114,13 @@ export function useFinancialInsights() {
           const created = (createdData as any).snapshot as Snapshot | undefined;
           const nextSnapshots = created ? [...existing, created] : [...existing, payload];
           if (mounted) setSnapshots(nextSnapshots.sort((a, b) => a.date.localeCompare(b.date)));
+          snapshotSyncedRef.current = true;
           return;
         }
       }
 
       if (mounted) setSnapshots(existing.sort((a, b) => a.date.localeCompare(b.date)));
+      snapshotSyncedRef.current = true;
     };
 
     syncSnapshots().catch((error) => {
@@ -126,7 +130,7 @@ export function useFinancialInsights() {
     return () => {
       mounted = false;
     };
-  }, [dashboard.loading, dashboard.netWorth.usd, dashboard.netWorth.ars, dashboard.cashflow.totalIncome, dashboard.cashflow.totalExpenses, dashboard.cashflow.savingsRate]);
+  }, [dashboard.loading]);
 
   return useMemo(() => {
     const fallbackSnapshots: Snapshot[] = dashboard.cashflow.monthly.map((row) => ({

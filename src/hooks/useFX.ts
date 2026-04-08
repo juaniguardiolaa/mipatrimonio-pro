@@ -9,8 +9,29 @@ type FXState = {
 // Module-level cache so all hook instances share one in-memory value
 // per browser session (avoids N simultaneous fetches on first render).
 let fxCache: { value: number | null; ts: number } | null = null;
-const FX_TTL_MS = 60_000; // 1 minute — matches server-side DB cache TTL
- 
+const FX_TTL = 60_000;
+
+async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 3000): Promise<T | null> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json() as T;
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function fetchCclRate(): Promise<number | null> {
+  const internal = await fetchJsonWithTimeout<{ ccl?: number }>('/api/fx/ccl');
+  const rate = Number(internal?.ccl ?? null);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
 export function useFX(): FXState {
   const [state, setState] = useState<FXState>({
     ccl: fxCache?.value ?? null,

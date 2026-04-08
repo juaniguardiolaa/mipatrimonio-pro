@@ -98,64 +98,10 @@ export default function AnalyticsPage() {
       />
  
       <div className="grid gap-4 md:grid-cols-4">
-        {/* Savings rate — from real cashflow data */}
-        <KpiCard
-          title="Savings Rate"
-          value={Math.round(dashboard.cashflow.savingsRate * 1000) / 10}
-          trend={0}
-          icon={BarChart3}
-          currency="%"
-        />
-        {/* Net cashflow for the selected range */}
-        <KpiCard
-          title={`Net Cashflow (${range})`}
-          value={Math.round(netCashflow)}
-          trend={0}
-          icon={CircleDollarSign}
-          currency="USD"
-        />
-        {/* Top asset-type concentration as volatility proxy */}
-        <KpiCard
-          title="Top Concentration"
-          value={
-            Math.round(
-              (dashboard.allocation.byType[0]?.percentage ?? 0) * 10,
-            ) / 10
-          }
-          trend={0}
-          icon={PieChart}
-          currency="%"
-        />
-        {/* 12-month projected net worth from simulation */}
-        <KpiCard
-          title="12-Month Forecast"
-          value={forecast !== null ? Math.round(forecast) : 0}
-          trend={0}
-          icon={CalendarClock}
-          currency="USD"
-        />
-      </div>
- 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ChartContainer title={`Income vs Expenses (${range})`}>
-          {incomeExpensesData.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No hay datos de cashflow para el período seleccionado.
-            </p>
-          ) : (
-            <IncomeVsExpensesChart data={incomeExpensesData} />
-          )}
-        </ChartContainer>
- 
-        <ChartContainer title="Distribución por tipo de activo">
-          {allocationData.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No hay posiciones con precio de mercado disponible.
-            </p>
-          ) : (
-            <AssetAllocationChart data={allocationData} />
-          )}
-        </ChartContainer>
+        <KpiCard title="Savings Rate" value={31.4} trend={2.3} icon={BarChart3} unit="percent" />
+        <KpiCard title="Net Cashflow" value={14220} trend={1.2} icon={CircleDollarSign} />
+        <KpiCard title="Volatility" value={8.9} trend={-0.8} icon={PieChart} />
+        <KpiCard title="Forecast" value={16500} trend={3.1} icon={CalendarClock} />
       </div>
  
       {/* Health score and top alerts as summary */}

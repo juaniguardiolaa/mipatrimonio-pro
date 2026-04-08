@@ -39,34 +39,35 @@ async function fetchJsonWithTimeout<T>(
     window.clearTimeout(timeoutId);
   }
 }
- 
-const COINGECKO_ID_MAP: Record<string, string> = {
-  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
-  XRP: 'ripple', ADA: 'cardano', DOGE: 'dogecoin', MATIC: 'matic-network',
-  AVAX: 'avalanche-2', DOT: 'polkadot', LINK: 'chainlink', LTC: 'litecoin',
-  UNI: 'uniswap', AAVE: 'aave', ATOM: 'cosmos', FIL: 'filecoin',
-  NEAR: 'near', OP: 'optimism', ARB: 'arbitrum',
-};
- 
-async function fetchCryptoBatchPricesUsd(
-  symbols: string[],
-): Promise<Record<string, number | null>> {
-  const unique = [...new Set(symbols.map(normalizeCryptoBaseSymbol))];
-  const result: Record<string, number | null> = {};
-  unique.forEach((s) => { result[s] = null; });
- 
+
+async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<string, number | null>> {
+  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => normalizeCryptoBaseSymbol(symbol))));
+  if (uniqueSymbols.length === 0) return {};
+
+  const explicitIdMap: Record<string, string> = {
+    BTC: 'bitcoin',
+    ETH: 'ethereum',
+    SOL: 'solana',
+    BNB: 'binancecoin',
+    XRP: 'ripple',
+    ADA: 'cardano',
+    DOGE: 'dogecoin',
+    MATIC: 'matic-network',
+    AVAX: 'avalanche-2',
+    DOT: 'polkadot',
+    LINK: 'chainlink',
+    LTC: 'litecoin',
+  };
+
   const symbolToId = new Map<string, string>();
-  for (const sym of unique) {
-    const id = COINGECKO_ID_MAP[sym];
-    if (id) symbolToId.set(sym, id);
-    else console.warn('[prices:coingecko] symbol_not_mapped', { sym });
+  for (const symbol of uniqueSymbols) {
+    const id = explicitIdMap[symbol] ?? symbol.toLowerCase();
+    symbolToId.set(symbol, id);
   }
- 
-  if (symbolToId.size === 0) return result;
- 
-  const ids = [...new Set(Array.from(symbolToId.values()))].join(',');
-  const data = await fetchJsonWithTimeout<Record<string, { usd?: number }>>(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=usd`,
+
+  const ids = Array.from(new Set(Array.from(symbolToId.values()))).join(',');
+  const data = await fetchJsonWithTimeout<{ prices: Record<string, number> }>(
+    `/api/pricing/crypto?ids=${encodeURIComponent(ids)}`,
   );
  
   if (!data) return result;
@@ -75,7 +76,13 @@ async function fetchCryptoBatchPricesUsd(
     const price = Number(data[id]?.usd ?? null);
     result[sym] = Number.isFinite(price) && price > 0 ? price : null;
   }
- 
+
+  uniqueSymbols.forEach((symbol) => {
+    const id = symbolToId.get(symbol);
+    const price = Number(id ? data?.prices?.[id] ?? null : null);
+    result[symbol] = Number.isFinite(price) && price > 0 ? price : null;
+  });
+
   return result;
 }
  
@@ -88,29 +95,10 @@ async function fetchCryptoBatchPricesUsd(
 async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
   const normalized = normalizeSymbol(symbol);
   if (!normalized) return null;
- 
-  // Prefer the internal proxy to avoid CORS; fall back to direct call in dev
-  const internalUrl = `/api/pricing/quote?symbol=${encodeURIComponent(normalized)}`;
-  const directUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalized)}?interval=1d&range=1d`;
- 
-  // Try internal route first
-  const internalData = await fetchJsonWithTimeout<{ price?: number }>(internalUrl);
-  if (internalData?.price && Number.isFinite(internalData.price) && internalData.price > 0) {
-    return internalData.price;
-  }
- 
-  // Fall back to direct Yahoo call (works in dev, may fail in prod due to CORS)
-  const chartData = await fetchJsonWithTimeout<{
-    chart?: {
-      result?: Array<{ meta?: { regularMarketPrice?: number } }>;
-    };
-  }>(directUrl);
- 
-  const price = Number(
-    chartData?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null,
+  const data = await fetchJsonWithTimeout<{ price?: number }>(
+    `/api/pricing/quote?symbol=${encodeURIComponent(normalized)}`,
   );
-  if (!Number.isFinite(price) || price <= 0) return null;
-  return price;
+  return data?.price && Number.isFinite(data.price) && data.price > 0 ? data.price : null;
 }
  
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -169,25 +157,41 @@ export function usePrices(assets: AssetForPricing[]) {
  
           await Promise.all(
             batch.map(async (asset) => {
-              const normalizedSymbol = normalizeSymbol(asset.symbol);
-              const cacheKey = `${asset.assetType}:${normalizedSymbol}`;
-              const cached = cacheRef.current[cacheKey];
-              let price: number | null = null;
- 
-              if (cached && now - cached.ts < PRICE_CACHE_TTL_MS) {
-                price = cached.price;
-              } else {
-                if (asset.assetType === 'CRYPTO') {
-                  price =
-                    cryptoPricesBySymbol[normalizeCryptoBaseSymbol(normalizedSymbol)] ??
-                    null;
-                } else if (
-                  // ── FIX: ETF was missing from this condition ───────────
-                  asset.assetType === 'STOCK' ||
-                  asset.assetType === 'ETF' ||
-                  asset.assetType === 'CEDEAR'
-                ) {
-                  price = await fetchStockPriceUsd(normalizedSymbol);
+              try {
+                let price: number | null = null;
+                const normalizedSymbol = normalizeSymbol(asset.symbol);
+                const normalizedCryptoBase = normalizeCryptoBaseSymbol(asset.symbol);
+                const cacheKey = `${asset.assetType}:${normalizedSymbol}`;
+                const cached = cacheRef.current[cacheKey];
+
+                if (cached && now - cached.ts < 60_000) {
+                  price = cached.price;
+                } else {
+                  if (asset.assetType === 'CRYPTO') {
+                    price = cryptoPricesBySymbol[normalizedCryptoBase] ?? null;
+                  }
+
+                  if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
+                    price = await fetchStockPriceUsd(normalizedSymbol);
+                  }
+
+                  if (asset.assetType === 'BOND') {
+                    price = asset.purchasePrice && asset.purchasePrice > 0 ? asset.purchasePrice : null;
+                  }
+
+                  if (asset.assetType === 'CEDEAR') {
+                    // future: apply FX * ratio
+                  }
+
+                  cacheRef.current[cacheKey] = { price, ts: Date.now() };
+                }
+
+                if (price === null) {
+                  console.warn('[pricing:failed]', {
+                    symbol: normalizedSymbol,
+                    assetType: asset.assetType,
+                    provider: asset.assetType === 'CRYPTO' ? 'coingecko' : 'yahoo',
+                  });
                 }
                 // CASH and BOND: no external price fetch needed here —
                 // handled separately in usePortfolio.
