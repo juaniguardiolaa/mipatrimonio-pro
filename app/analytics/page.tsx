@@ -15,7 +15,7 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <SectionHeader title="Analytics" subtitle="Insights financieros, patrones y distribución." actions={<Tabs tabs={['1M', '3M', '6M', '1Y']} active={range} onChange={setRange} />} />
       <div className="grid gap-4 md:grid-cols-4">
-        <KpiCard title="Savings Rate" value={31.4} trend={2.3} icon={BarChart3} />
+        <KpiCard title="Savings Rate" value={31.4} trend={2.3} icon={BarChart3} unit="percent" />
         <KpiCard title="Net Cashflow" value={14220} trend={1.2} icon={CircleDollarSign} />
         <KpiCard title="Volatility" value={8.9} trend={-0.8} icon={PieChart} />
         <KpiCard title="Forecast" value={16500} trend={3.1} icon={CalendarClock} />
