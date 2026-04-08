@@ -31,7 +31,7 @@ type Position = {
   marketValueUsd: number | null;
   profitLoss: number;
   profitLossArs: number | null;
-  roiPercent: number;
+  roiPercent: number | null;
   isRealPrice: boolean;
 };
 
@@ -44,6 +44,7 @@ export default function InvestmentsPage() {
   const [assetType, setAssetType] = useState('STOCK');
   const [quantity, setQuantity] = useState('');
   const [purchasePrice, setPurchasePrice] = useState('');
+  const [cedearRatio, setCedearRatio] = useState('');
   const [accountId, setAccountId] = useState('');
   const [error, setError] = useState('');
 
@@ -74,11 +75,28 @@ export default function InvestmentsPage() {
     event.preventDefault();
     setError('');
 
+    let purchaseCcl: number | null = null;
+    if (assetType === 'CEDEAR') {
+      const fxRes = await fetch('/api/fx/ccl', { cache: 'no-store', credentials: 'include' });
+      const fxData = await fxRes.json().catch(() => ({}));
+      const value = Number((fxData as any).ccl ?? null);
+      purchaseCcl = Number.isFinite(value) && value > 0 ? value : null;
+    }
+
     const res = await fetch('/api/assets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ symbol, assetType, quantity: Number(quantity), purchasePrice: Number(purchasePrice), currency: 'ARS', accountId: accountId || null }),
+      body: JSON.stringify({
+        symbol,
+        assetType,
+        quantity: Number(quantity),
+        purchasePrice: Number(purchasePrice),
+        purchaseCcl,
+        cedearRatio: assetType === 'CEDEAR' ? Number(cedearRatio) : null,
+        currency: assetType === 'CEDEAR' ? 'ARS' : 'USD',
+        accountId: accountId || null,
+      }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -90,6 +108,7 @@ export default function InvestmentsPage() {
     setSymbol('');
     setQuantity('');
     setPurchasePrice('');
+    setCedearRatio('');
     setAccountId('');
     await loadData();
   }
@@ -117,12 +136,29 @@ export default function InvestmentsPage() {
         </Select>
         <Input placeholder="Cantidad" type="number" min="0.0001" step="0.0001" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
         <Input placeholder="Precio compra" type="number" min="0.01" step="0.01" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} required />
+        {assetType === 'CEDEAR' ? (
+          <Input
+            placeholder="Ratio (ej: 10)"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={cedearRatio}
+            onChange={(e) => setCedearRatio(e.target.value)}
+            required
+            title="Cantidad de CEDEARs equivalentes a 1 acción subyacente"
+          />
+        ) : null}
         <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
           <option value="">Sin cuenta</option>
           {accounts.map((account) => <option key={account.id} value={account.id}>{account.name} ({account.institution})</option>)}
         </Select>
         <Button>Agregar inversión</Button>
         {error ? <p className="md:col-span-6 text-sm text-red-500">{error}</p> : null}
+        {assetType === 'CEDEAR' ? (
+          <p className="text-xs text-muted-foreground md:col-span-6">
+            El ratio indica cuántos CEDEARs equivalen a 1 acción del subyacente. Ejemplo: AAPL ratio 10 significa que 10 CEDEARs = 1 acción de Apple.
+          </p>
+        ) : null}
       </form>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -145,10 +181,21 @@ export default function InvestmentsPage() {
           { key: 'marketValueArs', label: 'Valor ARS', sortable: true, render: (row) => row.marketValueArs === null ? '—' : formatCurrency(row.marketValueArs, 'ARS') },
           { key: 'marketValueUsd', label: 'Valor USD', sortable: true, render: (row) => row.marketValueUsd === null ? '—' : formatCurrency(row.marketValueUsd, 'USD') },
           { key: 'profitLossArs', label: 'Ganancia ARS', sortable: true, render: (row) => row.profitLossArs === null ? '—' : <Badge variant={row.profitLossArs >= 0 ? 'success' : 'danger'}>{formatCurrency(row.profitLossArs, 'ARS')}</Badge> },
-          { key: 'roiPercent', label: 'ROI', sortable: true, render: (row) => <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>{formatPercent(row.roiPercent)}</Badge> },
+          { key: 'roiPercent', label: 'ROI', sortable: true, render: (row) => (row.roiPercent === null ? '—' : <Badge variant={row.roiPercent >= 0 ? 'success' : 'danger'}>{formatPercent(row.roiPercent)}</Badge>) },
         ]}
         rows={positions}
       />
+
+      {(() => {
+        const bondCount = positions.filter((position) => position.assetType === 'BOND').length;
+        const otherStaleCount = positions.filter((position) => !position.isRealPrice && position.assetType !== 'BOND').length;
+        return (
+          <div className="space-y-2">
+            {bondCount > 0 ? <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-700">⚠ {bondCount} bono{bondCount > 1 ? 's' : ''} valorizado{bondCount > 1 ? 's' : ''} a precio de compra (sin feed de precios de mercado).</div> : null}
+            {otherStaleCount > 0 ? <div className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-sm text-amber-700">⚠ {otherStaleCount} posición{otherStaleCount > 1 ? 'es' : ''} sin precio de mercado actualizado.</div> : null}
+          </div>
+        );
+      })()}
     </div>
   );
 }

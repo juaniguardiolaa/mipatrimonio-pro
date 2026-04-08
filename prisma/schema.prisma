@@ -29,6 +29,9 @@ model User {
   holdingAccounts HoldingAccount[]
   assets          Asset[]
   netWorthHistory NetWorthHistory[]
+  snapshots       Snapshot[]
+  incomes         Income[]
+  expenses        Expense[]
 }
 
 model Account {
@@ -112,6 +115,7 @@ model Asset {
   assetType       AssetType  @default(STOCK)
   quantity        Float
   purchasePrice   Float
+  purchaseCcl     Float?
   currency        String     @default("ARS")
   cedearRatio     Float?
   marketPrice     Float?
@@ -158,4 +162,60 @@ model NetWorthHistory {
   user       User     @relation(fields: [userId], references: [id])
 
   @@index([userId, timestamp(sort: Desc)])
+}
+
+model Snapshot {
+  id            String   @id @default(cuid())
+  userId        String
+  date          String
+  netWorthUsd   Float
+  netWorthArs   Float
+  totalIncome   Float
+  totalExpenses Float
+  savingsRate   Float
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date(sort: Desc)])
+}
+
+
+model Income {
+  id        String   @id @default(cuid())
+  userId    String
+  source    String
+  category  String   @default("Other")
+  amount    Float
+  currency  String   @default("USD")
+  date      DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date(sort: Desc)])
+}
+
+model Expense {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  category  String   @default("Other")
+  amount    Float
+  currency  String   @default("USD")
+  date      DateTime
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date(sort: Desc)])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt
 }

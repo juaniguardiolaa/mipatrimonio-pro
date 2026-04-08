@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type AssetForPricing = {
   id: string;
@@ -41,7 +41,7 @@ async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 3000): Promise<T
 }
 
 async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<string, number | null>> {
-  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => normalizeSymbol(symbol))));
+  const uniqueSymbols = Array.from(new Set(symbols.map((symbol) => normalizeCryptoBaseSymbol(symbol))));
   if (uniqueSymbols.length === 0) return {};
 
   const explicitIdMap: Record<string, string> = {
@@ -61,15 +61,13 @@ async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<stri
 
   const symbolToId = new Map<string, string>();
   for (const symbol of uniqueSymbols) {
-    const base = normalizeCryptoBaseSymbol(symbol);
-    const id = explicitIdMap[base] ?? base.toLowerCase();
+    const id = explicitIdMap[symbol] ?? symbol.toLowerCase();
     symbolToId.set(symbol, id);
   }
 
-  const uniqueIds = Array.from(new Set(Array.from(symbolToId.values())));
-  const idsParam = encodeURIComponent(uniqueIds.join(','));
-  const data = await fetchJsonWithTimeout<Record<string, { usd?: number }>>(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd`,
+  const ids = Array.from(new Set(Array.from(symbolToId.values()))).join(',');
+  const data = await fetchJsonWithTimeout<{ prices: Record<string, number> }>(
+    `/api/pricing/crypto?ids=${encodeURIComponent(ids)}`,
   );
 
   const result: Record<string, number | null> = {};
@@ -82,7 +80,7 @@ async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<stri
 
   uniqueSymbols.forEach((symbol) => {
     const id = symbolToId.get(symbol);
-    const price = Number(id ? data?.[id]?.usd ?? null : null);
+    const price = Number(id ? data?.prices?.[id] ?? null : null);
     result[symbol] = Number.isFinite(price) && price > 0 ? price : null;
   });
 
@@ -92,28 +90,10 @@ async function fetchCryptoBatchPricesUsd(symbols: string[]): Promise<Record<stri
 async function fetchStockPriceUsd(symbol: string): Promise<number | null> {
   const normalized = normalizeSymbol(symbol);
   if (!normalized) return null;
-
-  try {
-    const chartData = await fetchJsonWithTimeout<{
-      chart?: {
-        result?: Array<{
-          meta?: { regularMarketPrice?: number };
-        }>;
-      };
-    }>(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(normalized)}`);
-
-    if (!chartData) return null;
-    const price = Number(chartData?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null);
-    if (!Number.isFinite(price) || price <= 0) return null;
-    return price;
-  } catch (error) {
-    console.warn('[pricing:failed]', {
-      symbol: normalized,
-      assetType: 'STOCK',
-      provider: 'yahoo',
-    });
-    return null;
-  }
+  const data = await fetchJsonWithTimeout<{ price?: number }>(
+    `/api/pricing/quote?symbol=${encodeURIComponent(normalized)}`,
+  );
+  return data?.price && Number.isFinite(data.price) && data.price > 0 ? data.price : null;
 }
 
 export function usePrices(assets: AssetForPricing[]) {
@@ -150,6 +130,7 @@ export function usePrices(assets: AssetForPricing[]) {
               try {
                 let price: number | null = null;
                 const normalizedSymbol = normalizeSymbol(asset.symbol);
+                const normalizedCryptoBase = normalizeCryptoBaseSymbol(asset.symbol);
                 const cacheKey = `${asset.assetType}:${normalizedSymbol}`;
                 const cached = cacheRef.current[cacheKey];
 
@@ -157,11 +138,15 @@ export function usePrices(assets: AssetForPricing[]) {
                   price = cached.price;
                 } else {
                   if (asset.assetType === 'CRYPTO') {
-                    price = cryptoPricesBySymbol[normalizedSymbol] ?? null;
+                    price = cryptoPricesBySymbol[normalizedCryptoBase] ?? null;
                   }
 
                   if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
                     price = await fetchStockPriceUsd(normalizedSymbol);
+                  }
+
+                  if (asset.assetType === 'BOND') {
+                    price = asset.purchasePrice && asset.purchasePrice > 0 ? asset.purchasePrice : null;
                   }
 
                   if (asset.assetType === 'CEDEAR') {

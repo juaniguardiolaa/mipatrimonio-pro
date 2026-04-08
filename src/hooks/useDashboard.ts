@@ -26,6 +26,14 @@ type CashflowRow = {
   net: number;
 };
 
+export type Mover = {
+  id: string;
+  symbol: string;
+  marketValueUsd: number | null;
+  profitLossUsd: number | null;
+  roiPercent: number | null;
+};
+
 const safeSum = (values: Array<number | null | undefined>) => values.reduce<number>((acc, value) => acc + (value ?? 0), 0);
 
 function roundMoney(value: number | null): number | null {
@@ -103,6 +111,11 @@ export function useDashboard() {
 
     const cashUsd = usdAccountsTotal + (ccl && ccl > 0 ? arsAccountsTotal / ccl : 0);
     const cashArs = arsAccountsTotal + (ccl && ccl > 0 ? usdAccountsTotal * ccl : 0);
+    const fxRateAvailable = Boolean(ccl && ccl > 0);
+    const requiresFx = arsAccountsTotal > 0 || assets.some((asset) => {
+      const currency = (asset.currency || '').toUpperCase();
+      return currency === 'ARS' || asset.assetType === 'CEDEAR';
+    });
 
     console.log('[dashboard:cash]', {
       usdAccountsTotal: roundMoney(usdAccountsTotal),
@@ -112,8 +125,33 @@ export function useDashboard() {
       cashArs: roundMoney(cashArs),
     });
 
-    const netWorthUsd = safeSum([portfolio.totals.totalUsd, cashUsd]);
-    const netWorthArs = safeSum([portfolio.totals.totalArs, cashArs]);
+    const investmentPositions = portfolio.positions.filter((position) => position.assetType !== 'CASH');
+    const cashAssetPositions = portfolio.positions.filter((position) => position.assetType === 'CASH');
+    const investmentTotalUsd = safeSum(
+      investmentPositions
+        .filter((position) => position.isRealPrice && position.marketValueUsd !== null)
+        .map((position) => position.marketValueUsd),
+    );
+    const investmentTotalArs = safeSum(
+      investmentPositions
+        .filter((position) => position.isRealPrice && position.marketValueArs !== null)
+        .map((position) => position.marketValueArs),
+    );
+
+    const hasAccountBalances = accounts.some((account) => toAmount(account.balance) > 0);
+    if (hasAccountBalances && cashAssetPositions.length > 0) {
+      console.warn('[dashboard:dual-cash] Both HoldingAccount balances and CASH assets detected. Using HoldingAccount balances to avoid double-counting.');
+    }
+
+    const effectiveCashUsd = hasAccountBalances
+      ? cashUsd
+      : safeSum(cashAssetPositions.filter((position) => position.isRealPrice).map((position) => position.marketValueUsd));
+    const effectiveCashArs = hasAccountBalances
+      ? cashArs
+      : safeSum(cashAssetPositions.filter((position) => position.isRealPrice).map((position) => position.marketValueArs));
+
+    const netWorthUsd = safeSum([investmentTotalUsd, effectiveCashUsd]);
+    const netWorthArs = safeSum([investmentTotalArs, effectiveCashArs]);
 
     const monthMap = new Map<string, { income: number; expenses: number }>();
     income.forEach((item) => {
@@ -151,21 +189,27 @@ export function useDashboard() {
 
     const validPositions = portfolio.positions.filter((position) => position.isRealPrice && position.marketValueUsd !== null);
     const totalMarketUsd = safeSum(validPositions.map((position) => position.marketValueUsd));
+    const totalForAllocation = safeSum([totalMarketUsd, effectiveCashUsd]);
 
     const byAsset = validPositions.map((position) => ({
       symbol: position.symbol,
       valueUsd: roundMoney(position.marketValueUsd) ?? 0,
-      percentage: totalMarketUsd > 0 ? ((position.marketValueUsd ?? 0) / totalMarketUsd) * 100 : 0,
+      percentage: totalForAllocation > 0 ? ((position.marketValueUsd ?? 0) / totalForAllocation) * 100 : 0,
     }));
 
     const byTypeMap = new Map<string, number>();
     validPositions.forEach((position) => {
       byTypeMap.set(position.assetType, (byTypeMap.get(position.assetType) || 0) + (position.marketValueUsd ?? 0));
     });
+    if (effectiveCashUsd > 0 && !byTypeMap.has('CASH')) {
+      byTypeMap.set('CASH', effectiveCashUsd);
+    } else if (effectiveCashUsd > 0) {
+      byTypeMap.set('CASH', (byTypeMap.get('CASH') ?? 0) + effectiveCashUsd);
+    }
     const byType = Array.from(byTypeMap.entries()).map(([assetType, valueUsd]) => ({
       assetType,
       valueUsd: roundMoney(valueUsd) ?? 0,
-      percentage: totalMarketUsd > 0 ? (valueUsd / totalMarketUsd) * 100 : 0,
+      percentage: totalForAllocation > 0 ? (valueUsd / totalForAllocation) * 100 : 0,
     }));
 
     const moversSource = validPositions
@@ -188,6 +232,10 @@ export function useDashboard() {
       allocation: { byAsset, byType },
       movers: { gainers, losers },
       portfolio,
+      fx: {
+        rateAvailable: fxRateAvailable,
+        requiresConversion: requiresFx,
+      },
       loading,
     };
 
@@ -198,5 +246,5 @@ export function useDashboard() {
     });
 
     return result;
-  }, [accounts, ccl, expenses, income, loading, portfolio]);
+  }, [accounts, assets, ccl, expenses, income, loading, portfolio]);
 }
