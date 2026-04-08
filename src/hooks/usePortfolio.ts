@@ -10,6 +10,7 @@ type AssetInput = {
   quantity: number;
   purchasePrice: number;
   currency: string;
+  purchaseCcl?: number | null;
   cedearRatio?: number | null;
 };
 
@@ -76,16 +77,22 @@ export function usePortfolio(assets: AssetInput[]) {
       : pnlEligiblePriceArs !== null ? pnlEligiblePriceArs * asset.quantity : null;
 
     // Base currency: USD (all calculations start in USD)
+    const costBasisArsRaw = asset.purchasePrice * asset.quantity;
+    const basisCcl = asset.purchaseCcl && asset.purchaseCcl > 0 ? asset.purchaseCcl : ccl;
     const costBasisUsd = asset.currency === 'USD'
       ? asset.purchasePrice * asset.quantity
-      : ccl
-        ? (asset.purchasePrice * asset.quantity) / ccl
+      : basisCcl && basisCcl > 0
+        ? costBasisArsRaw / basisCcl
         : null;
     const costBasisArs = costBasisUsd !== null && ccl ? costBasisUsd * ccl : null;
 
     const profitLossUsd = marketValueUsd !== null && costBasisUsd !== null ? marketValueUsd - costBasisUsd : null;
     const profitLossArs = profitLossUsd !== null && ccl ? profitLossUsd * ccl : null;
-    const roiPercent = costBasisUsd && profitLossUsd !== null && costBasisUsd > 0 ? (profitLossUsd / costBasisUsd) * 100 : 0;
+    const roiPercent: number | null = costBasisUsd && costBasisUsd > 0 && profitLossUsd !== null
+      ? (profitLossUsd / costBasisUsd) * 100
+      : costBasisArs && costBasisArs > 0 && profitLossArs !== null
+        ? (profitLossArs / costBasisArs) * 100
+        : null;
 
     return {
       ...asset,
@@ -106,7 +113,7 @@ export function usePortfolio(assets: AssetInput[]) {
       roiPercent,
       isRealPrice,
       pnl: roundMoney(profitLossArs) ?? 0,
-      pnlPct: roiPercent,
+      pnlPct: roiPercent ?? 0,
     };
   }), [assets, ccl, prices]);
 

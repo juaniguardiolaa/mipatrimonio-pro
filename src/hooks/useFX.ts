@@ -23,17 +23,9 @@ async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 3000): Promise<T
 }
 
 async function fetchCclRate(): Promise<number | null> {
-  const dolarApi = await fetchJsonWithTimeout<{ venta?: number }>('https://dolarapi.com/v1/dolares/contadoconliqui');
-  const fromDolarApi = Number(dolarApi?.venta ?? null);
-  if (Number.isFinite(fromDolarApi) && fromDolarApi > 0) return fromDolarApi;
-
-  const bluelytics = await fetchJsonWithTimeout<{
-    ccl?: { value_sell?: number };
-  }>('https://api.bluelytics.com.ar/v2/latest');
-  const fromBluelytics = Number(bluelytics?.ccl?.value_sell ?? null);
-  if (Number.isFinite(fromBluelytics) && fromBluelytics > 0) return fromBluelytics;
-
-  return null;
+  const internal = await fetchJsonWithTimeout<{ ccl?: number }>('/api/fx/ccl');
+  const rate = Number(internal?.ccl ?? null);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
 }
 
 export function useFX(): FXState {
