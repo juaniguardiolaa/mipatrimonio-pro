@@ -7,7 +7,17 @@ import { Table, Td, Th } from './Table';
 
 type Column<T> = { key: keyof T; label: string; sortable?: boolean; render?: (row: T) => import('react').ReactNode };
 
-export function DataTable<T extends { id: string }>({ title, columns, rows }: { title: string; columns: Column<T>[]; rows: T[] }) {
+export function DataTable<T extends { id: string }>({
+  title,
+  columns,
+  rows,
+  onEdit,
+}: {
+  title: string;
+  columns: Column<T>[];
+  rows: T[];
+  onEdit?: (row: T) => void;
+}) {
   const [sort, setSort] = useState<{ key: keyof T; asc: boolean } | null>(null);
 
   const sortedRows = useMemo(() => {
@@ -34,7 +44,7 @@ export function DataTable<T extends { id: string }>({ title, columns, rows }: { 
                   </button>
                 </Th>
               ))}
-              <Th>Acciones</Th>
+              <Th>{onEdit ? 'Acciones' : ''}</Th>
             </tr>
           </thead>
           <tbody>
@@ -43,7 +53,14 @@ export function DataTable<T extends { id: string }>({ title, columns, rows }: { 
                 {columns.map((column) => (
                   <Td key={String(column.key)}>{column.render ? column.render(row) : String(row[column.key])}</Td>
                 ))}
-                <Td><button className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs"><Pencil className="h-3 w-3" />Editar</button></Td>
+                <Td>
+                  {onEdit ? (
+                    <button type="button" className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs transition hover:bg-muted" onClick={() => onEdit(row)}>
+                      <Pencil className="h-3 w-3" />
+                      Editar
+                    </button>
+                  ) : null}
+                </Td>
               </tr>
             ))}
           </tbody>

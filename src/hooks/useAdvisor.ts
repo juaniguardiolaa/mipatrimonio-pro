@@ -39,6 +39,7 @@ function hashString(value: string) {
 }
 
 const compactMessage = (value: string, max = 100) => (value.length <= max ? value : `${value.slice(0, max)}...`);
+const MAX_PAYLOAD_BYTES = 8_192;
 
 export function useAdvisor() {
   const dashboard = useDashboard();
@@ -129,14 +130,27 @@ export function useAdvisor() {
     const inFlight = inFlightRef.current.get(cacheKey);
     if (inFlight) return inFlight;
 
-    const payload = {
+    const payload: {
+      userQuestion: string;
+      financialSummary: CompactContext['financialSummary'];
+      memory: CompactContext['memory'];
+    } = {
       userQuestion: normalized,
       ...context,
     };
 
     const payloadSize = new Blob([JSON.stringify(payload)]).size;
-    if (payloadSize > 2048) {
-      throw new Error('advisor_payload_too_large');
+    if (payloadSize > MAX_PAYLOAD_BYTES) {
+      console.warn('[advisor] payload_too_large', { payloadSize, limit: MAX_PAYLOAD_BYTES });
+      payload.financialSummary.alerts = payload.financialSummary.alerts.slice(0, 2);
+      payload.financialSummary.recommendations = payload.financialSummary.recommendations.slice(0, 2);
+      payload.memory.lastQuestions = payload.memory.lastQuestions.slice(0, 3);
+      payload.memory.lastRecommendations = payload.memory.lastRecommendations.slice(0, 3);
+
+      const retrySize = new Blob([JSON.stringify(payload)]).size;
+      if (retrySize > MAX_PAYLOAD_BYTES) {
+        throw new Error('advisor_payload_too_large');
+      }
     }
 
     const promise = (async () => {

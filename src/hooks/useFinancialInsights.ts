@@ -188,8 +188,18 @@ export function useFinancialInsights(dashboardOverride?: ReturnType<typeof useDa
     if (totalExpenses > totalIncome) maxCap = Math.min(maxCap, 50);
     if (netWorthUsd <= 0) maxCap = Math.min(maxCap, 30);
 
-    const completedCount = advisorMemory.memory.lastRecommendations.filter((recommendation) => recommendation.status === 'completed').length;
-    const completionBonus = Math.min(10, completedCount * 2);
+    const validatedCompletions = advisorMemory.memory.lastRecommendations
+      .filter((recommendation) => {
+        if (recommendation.status !== 'completed') return false;
+        const text = recommendation.text.toLowerCase();
+
+        if (text.includes('expense') || text.includes('gasto')) return savingsRate >= 0.05;
+        if (text.includes('saving') || text.includes('ahorro')) return savingsRate >= 0.1;
+        if (text.includes('rebalanc') || text.includes('concentration') || text.includes('concentrac')) return maxTypeShare <= 0.6;
+        if (text.includes('cash') || text.includes('liquidity') || text.includes('liquidez')) return cashPosition >= 0.08;
+        return true;
+      });
+    const completionBonus = Math.min(10, validatedCompletions.length * 2);
     healthScore = clamp(Math.min(healthScore, maxCap) + completionBonus, 0, 100);
 
     console.log('[healthScore] computed', {

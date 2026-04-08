@@ -18,8 +18,10 @@ export function KpiCard({
   currency?: string;
   unit?: 'currency' | 'percent';
 }) {
+  const VALID_CURRENCIES = new Set(['USD', 'ARS', 'EUR', 'BRL']);
+  const safeUnit = unit === 'percent' || !VALID_CURRENCIES.has(currency) ? 'percent' : 'currency';
   const positive = trend >= 0;
-  const displayValue = unit === 'percent' ? `${value.toFixed(1)}%` : formatCurrency(value, currency);
+  const displayValue = safeUnit === 'percent' ? `${value.toFixed(1)}%` : formatCurrency(value, currency);
   return (
     <Card className="transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between">
