@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useDashboard } from './useDashboard';
 import { useFinancialInsights } from './useFinancialInsights';
+import { useFX } from './useFX';
 
 const RETURNS: Record<string, number> = {
   CRYPTO: 0.12,
@@ -134,9 +135,14 @@ function runScenario(options: {
   } satisfies ScenarioResult;
 }
 
-export function useSimulation(input: SimulationInput = {}) {
-  const dashboard = useDashboard();
-  const insightsLayer = useFinancialInsights();
+export function useSimulation(
+  input: SimulationInput = {},
+  dashboardOverride?: ReturnType<typeof useDashboard>,
+) {
+  const dashboardInternal = useDashboard();
+  const dashboard = dashboardOverride ?? dashboardInternal;
+  const insightsLayer = useFinancialInsights(dashboard);
+  const { ccl } = useFX();
 
   return useMemo(() => {
     const years = Math.max(1, Math.floor(input.years ?? 5));
@@ -168,8 +174,10 @@ export function useSimulation(input: SimulationInput = {}) {
     const expenseReduction = clamp((input.expenseReductionPercent ?? 0) / 100, 0, 1);
     const optimizedSavings = Math.max(0, baselineSavings + (monthlyExpenses * expenseReduction));
 
-    const inferredFx = dashboard.netWorth.usd > 0 ? dashboard.netWorth.ars / dashboard.netWorth.usd : 0;
-    const fxRate = inferredFx > 0 ? inferredFx : 1;
+    const inferredFx = dashboard.netWorth.usd > 0
+      ? dashboard.netWorth.ars / dashboard.netWorth.usd
+      : null;
+    const fxRate = inferredFx ?? ccl ?? 1;
 
     const baseScenario = runScenario({
       months,
@@ -254,6 +262,7 @@ export function useSimulation(input: SimulationInput = {}) {
       optimizedScenario,
     };
   }, [
+    ccl,
     dashboard,
     insightsLayer,
     input.expenseReductionPercent,

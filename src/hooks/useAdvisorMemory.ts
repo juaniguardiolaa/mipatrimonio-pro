@@ -70,6 +70,8 @@ export function useAdvisorMemory() {
   const [memory, setMemory] = useState<AdvisorMemory>(defaultMemory);
 
   useEffect(() => {
+    // Hydration: read localStorage only on client after mount.
+    // Initial state remains defaultMemory to match SSR output.
     setMemory(readMemory());
   }, []);
 

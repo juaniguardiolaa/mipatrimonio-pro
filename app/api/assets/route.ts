@@ -35,6 +35,7 @@ export async function POST(request: Request) {
   const quantity = Number(body?.quantity || 0);
   const purchasePrice = Number(body?.purchasePrice || 0);
   let purchaseCcl = Number(body?.purchaseCcl ?? null);
+  const cedearRatio = body?.cedearRatio ? Number(body.cedearRatio) : null;
   const currency = body?.currency?.trim() || 'ARS';
   const accountId = body?.accountId?.trim() || null;
 
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
       quantity,
       purchasePrice,
       purchaseCcl: Number.isFinite(purchaseCcl) && purchaseCcl > 0 ? purchaseCcl : null,
+      cedearRatio: assetType === 'CEDEAR' && Number.isFinite(cedearRatio) && (cedearRatio as number) > 0 ? cedearRatio : null,
       currency,
     },
   });

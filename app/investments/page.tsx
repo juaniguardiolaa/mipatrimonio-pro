@@ -44,6 +44,7 @@ export default function InvestmentsPage() {
   const [assetType, setAssetType] = useState('STOCK');
   const [quantity, setQuantity] = useState('');
   const [purchasePrice, setPurchasePrice] = useState('');
+  const [cedearRatio, setCedearRatio] = useState('');
   const [accountId, setAccountId] = useState('');
   const [error, setError] = useState('');
  
@@ -89,14 +90,28 @@ export default function InvestmentsPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ symbol, assetType, quantity: Number(quantity), purchasePrice: Number(purchasePrice), purchaseCcl, currency: 'ARS', accountId: accountId || null }),
+      body: JSON.stringify({
+        symbol,
+        assetType,
+        quantity: Number(quantity),
+        purchasePrice: Number(purchasePrice),
+        purchaseCcl,
+        cedearRatio: assetType === 'CEDEAR' ? Number(cedearRatio) : null,
+        currency: assetType === 'CEDEAR' ? 'ARS' : 'USD',
+        accountId: accountId || null,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       setError(data.message || 'No se pudo crear la inversión.');
       return;
     }
-    setSymbol(''); setQuantity(''); setPurchasePrice(''); setAccountId('');
+
+    setSymbol('');
+    setQuantity('');
+    setPurchasePrice('');
+    setCedearRatio('');
+    setAccountId('');
     await loadData();
   }
  
@@ -164,24 +179,20 @@ export default function InvestmentsPage() {
           <option value="ETF">ETF</option>
           <option value="CASH">CASH</option>
         </Select>
-        <Input
-          placeholder="Cantidad"
-          type="number"
-          min="0.0001"
-          step="0.0001"
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          required
-        />
-        <Input
-          placeholder={assetType === 'CEDEAR' ? 'Precio compra (ARS)' : 'Precio compra (USD)'}
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={purchasePrice}
-          onChange={(e) => setPurchasePrice(e.target.value)}
-          required
-        />
+        <Input placeholder="Cantidad" type="number" min="0.0001" step="0.0001" value={quantity} onChange={(e) => setQuantity(e.target.value)} required />
+        <Input placeholder="Precio compra" type="number" min="0.01" step="0.01" value={purchasePrice} onChange={(e) => setPurchasePrice(e.target.value)} required />
+        {assetType === 'CEDEAR' ? (
+          <Input
+            placeholder="Ratio (ej: 10)"
+            type="number"
+            min="0.01"
+            step="0.01"
+            value={cedearRatio}
+            onChange={(e) => setCedearRatio(e.target.value)}
+            required
+            title="Cantidad de CEDEARs equivalentes a 1 acción subyacente"
+          />
+        ) : null}
         <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
           <option value="">Sin cuenta</option>
           {accounts.map((a) => (
@@ -192,6 +203,11 @@ export default function InvestmentsPage() {
         </Select>
         <Button>Agregar inversión</Button>
         {error ? <p className="md:col-span-6 text-sm text-red-500">{error}</p> : null}
+        {assetType === 'CEDEAR' ? (
+          <p className="text-xs text-muted-foreground md:col-span-6">
+            El ratio indica cuántos CEDEARs equivalen a 1 acción del subyacente. Ejemplo: AAPL ratio 10 significa que 10 CEDEARs = 1 acción de Apple.
+          </p>
+        ) : null}
       </form>
  
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

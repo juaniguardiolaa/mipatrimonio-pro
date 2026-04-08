@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useDashboard } from './useDashboard';
 import { useFinancialInsights } from './useFinancialInsights';
 import { useSimulation } from './useSimulation';
@@ -63,8 +63,15 @@ export function useProactiveAdvisor() {
   const insights = useFinancialInsights();
   const simulation = useSimulation();
   const memory = useAdvisorMemory();
+  const triggerStateRef = useRef<TriggerState>({});
+  const alertsStoreRef = useRef<Record<string, SmartAlert>>({});
 
-  return useMemo(() => {
+  useEffect(() => {
+    triggerStateRef.current = readJson<TriggerState>('advisor:v2:trigger-state', {});
+    alertsStoreRef.current = readJson<Record<string, SmartAlert>>('advisor:v2:alerts', {});
+  }, []);
+
+  const proactiveResult = useMemo(() => {
     const snapshotHash = hashString(JSON.stringify({
       savingsRate: dashboard.cashflow.savingsRate,
       expenses: dashboard.cashflow.totalExpenses,
@@ -77,7 +84,7 @@ export function useProactiveAdvisor() {
 
     const now = Date.now();
     const cooldownMs = 24 * 60 * 60 * 1000;
-    const triggerState = readJson<TriggerState>('advisor:v2:trigger-state', {});
+    const triggerState: TriggerState = { ...triggerStateRef.current };
 
     const raw: Array<ProactiveInsight & { severityLevel: number }> = [];
 
@@ -117,14 +124,13 @@ export function useProactiveAdvisor() {
     filteredByCooldown.forEach((item) => {
       triggerState[item.type] = { lastTriggeredAt: now, severityLevel: item.severityLevel };
     });
-    writeJson('advisor:v2:trigger-state', triggerState);
 
     console.log('[advisor:v2] noise_filtered', {
       before: raw.length,
       after: filteredByCooldown.length,
     });
 
-    const alertsStore = readJson<Record<string, SmartAlert>>('advisor:v2:alerts', {});
+    const alertsStore: Record<string, SmartAlert> = { ...alertsStoreRef.current };
     const smartAlerts: SmartAlert[] = [];
 
     filteredByCooldown.forEach((insight) => {
@@ -144,8 +150,6 @@ export function useProactiveAdvisor() {
         smartAlerts.push(existing);
       }
     });
-
-    writeJson('advisor:v2:alerts', alertsStore);
 
     const pendingRecommendations = memory.pendingRecommendations
       .filter((item) => now - item.createdAt > 3 * 24 * 60 * 60 * 1000)
@@ -272,6 +276,8 @@ export function useProactiveAdvisor() {
       aiSummary,
       events,
       topPriority,
+      _triggerState: triggerState,
+      _alertsStore: alertsStore,
     };
   }, [
     dashboard.allocation.byType,
@@ -285,4 +291,14 @@ export function useProactiveAdvisor() {
     simulation.conservativeYearsToGoal,
     simulation.yearsToGoal,
   ]);
+
+  useEffect(() => {
+    triggerStateRef.current = proactiveResult._triggerState;
+    alertsStoreRef.current = proactiveResult._alertsStore;
+    writeJson('advisor:v2:trigger-state', proactiveResult._triggerState);
+    writeJson('advisor:v2:alerts', proactiveResult._alertsStore);
+  }, [proactiveResult._alertsStore, proactiveResult._triggerState]);
+
+  const { _alertsStore, _triggerState, ...publicResult } = proactiveResult;
+  return publicResult;
 }

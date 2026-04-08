@@ -10,7 +10,7 @@ type Mover = {
   symbol: string;
   marketValueUsd: number | null;
   profitLossUsd: number | null;
-  roiPercent: number;
+  roiPercent: number | null;
 };
 
 function MoversTableBase({ title, type, rows }: { title: string; type: 'gainer' | 'loser'; rows: Mover[] }) {
@@ -37,7 +37,7 @@ function MoversTableBase({ title, type, rows }: { title: string; type: 'gainer' 
                   <td className={`py-2 ${((row.profitLossUsd ?? 0) >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {row.profitLossUsd === null ? '—' : formatCurrency(row.profitLossUsd, 'USD')}
                   </td>
-                  <td className="py-2">{formatPercent(row.roiPercent)}</td>
+                  <td className="py-2">{row.roiPercent === null ? '—' : formatPercent(row.roiPercent)}</td>
                   <td className="py-2">
                     <Badge variant={type === 'gainer' ? 'success' : 'danger'}>{type === 'gainer' ? 'Gainer' : 'Loser'}</Badge>
                   </td>

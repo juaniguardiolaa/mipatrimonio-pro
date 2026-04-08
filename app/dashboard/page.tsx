@@ -14,6 +14,7 @@ import { CashflowChart } from '@/components/dashboard/charts/CashflowChart';
 import { MoversTable } from '@/components/dashboard/tables/MoversTable';
 import { Card } from '@/components/ui/Card';
 import { SimulationChart } from '@/components/dashboard/charts/SimulationChart';
+import { useDashboardContext } from '@/src/context/DashboardContext';
 
 function InfoHint({ text }: { text: string }) {
   return (
@@ -31,12 +32,13 @@ export default function DashboardPage() {
   const [monthlySavingsInput, setMonthlySavingsInput] = useState<string>('');
   const [expenseReductionInput, setExpenseReductionInput] = useState<string>('0');
   const [goalInput, setGoalInput] = useState<string>('');
+  const dashboardContext = useDashboardContext();
 
   const simulationLayer = useSimulation({
     monthlySavings: monthlySavingsInput === '' ? undefined : Number(monthlySavingsInput),
     expenseReductionPercent: Number(expenseReductionInput || 0),
     targetAmountUsd: goalInput === '' ? undefined : Number(goalInput),
-  });
+  }, dashboardContext);
   const insightsLayer = simulationLayer.insights;
   const dashboard = simulationLayer.dashboard;
   const proactiveAdvisor = useProactiveAdvisor();
@@ -210,7 +212,7 @@ export default function DashboardPage() {
         <Card className="xl:col-span-3 rounded-xl border border-gray-700 bg-gray-800/60 p-4 shadow-sm">
           <p className="text-sm font-semibold text-white">
             Simulation Panel
-            <InfoHint text="Projection applies weighted expected return, inflation-adjusted growth, and your what-if inputs." />
+            <InfoHint text="Proyección basada en retorno ponderado por tipo de activo, ajustado por inflación. Los escenarios optimista/conservador varían el retorno base ±20%, no son intervalos estadísticos." />
           </p>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <label className="text-xs text-slate-300">
@@ -253,16 +255,17 @@ export default function DashboardPage() {
               <p>Expected annual return: {formatPercent(simulationLayer.expectedReturn * 100)}</p>
               <p>Real annual return: {formatPercent(simulationLayer.realReturn * 100)}</p>
               <p>Projected net worth: {formatCurrency(simulationLayer.projectedNetWorth.usd, 'USD')}</p>
-              {simulationLayer.conservativeYearsToGoal !== null || simulationLayer.optimisticYearsToGoal !== null ? (
-                <p>
-                  Estimated range:{' '}
-                  {simulationLayer.optimisticYearsToGoal !== null ? simulationLayer.optimisticYearsToGoal : 'N/A'}
-                  {' – '}
-                  {simulationLayer.conservativeYearsToGoal !== null ? simulationLayer.conservativeYearsToGoal : 'N/A'} years
-                </p>
-              ) : null}
-              <p className="mt-2 text-xs text-slate-400">Optimistic assumes stronger market performance with the same strategy.</p>
-              <p className="text-xs text-slate-400">Conservative assumes lower returns and tougher market conditions.</p>
+              <p>
+                Escenario optimista (retorno +20%): {simulationLayer.optimisticYearsToGoal !== null ? `${simulationLayer.optimisticYearsToGoal} años` : 'fuera del horizonte'}
+              </p>
+              <p>
+                Escenario conservador (retorno -20%): {simulationLayer.conservativeYearsToGoal !== null ? `${simulationLayer.conservativeYearsToGoal} años` : 'fuera del horizonte'}
+              </p>
+              <p className="mt-2 text-xs text-slate-400">
+                Estos escenarios asumen un retorno anual {Math.round(simulationLayer.expectedReturn * 120)}% (optimista)
+                {' '}y {Math.round(simulationLayer.expectedReturn * 80)}% (conservador) sobre el retorno base estimado.
+                {' '}No representan intervalos de confianza estadísticos.
+              </p>
             </div>
             <div className="rounded-lg border border-emerald-700/40 bg-emerald-950/20 p-3 text-sm text-emerald-100">
               <p>
