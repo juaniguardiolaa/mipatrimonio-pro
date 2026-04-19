@@ -61,10 +61,7 @@ export async function destroySession() {
 
 export async function getAuthSession() {
   const cookieStore = cookies();
-  console.log('cookies:', cookieStore.getAll());
-
   const sessionToken = cookieStore.get(SESSION_COOKIE)?.value;
-  console.log('sessionToken:', sessionToken);
 
   if (!sessionToken) {
     console.info('[auth.session] session not found: missing cookie');
@@ -77,16 +74,9 @@ export async function getAuthSession() {
   });
 
   if (!dbSession) {
-    console.log('session lookup result:', null);
     console.info('[auth.session] session not found in database');
     return null;
   }
-
-  console.log('session lookup result:', {
-    id: dbSession.id,
-    userId: dbSession.userId,
-    expires: dbSession.expires.toISOString(),
-  });
 
   if (dbSession.expires < new Date()) {
     console.info('[auth.session] session expired', { userId: dbSession.userId, expires: dbSession.expires.toISOString() });
