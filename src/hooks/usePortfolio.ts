@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { usePrices } from './usePrices';
 import { useFX } from './useFX';
-
+ 
 type AssetInput = {
   id: string;
   symbol: string;
@@ -13,24 +13,28 @@ type AssetInput = {
   purchaseCcl?: number | null;
   cedearRatio?: number | null;
 };
-
+ 
 function roundMoney(value: number | null): number | null {
   if (value === null || !Number.isFinite(value)) return null;
   return Math.round(value * 100) / 100;
 }
-
-const safeSum = (values: Array<number | null>) => values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
-
-export function isValidAsset(position: { marketValueUsd: number | null; isRealPrice: boolean }) {
+ 
+const safeSum = (values: Array<number | null>) =>
+  values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
+ 
+export function isValidAsset(position: {
+  marketValueUsd: number | null;
+  isRealPrice: boolean;
+}) {
   return position.marketValueUsd !== null && position.isRealPrice;
 }
-
+ 
 export function usePortfolio(assets: AssetInput[]) {
   const prices = usePrices(assets);
   const { ccl } = useFX();
-
+ 
   useEffect(() => {
-    if (ccl === null) console.warn('[fx:missing]');
+    if (ccl === null) console.warn('[fx:missing] CCL not available — ARS values will be null');
   }, [ccl]);
 
   const positions = useMemo(() => assets.map((asset) => {
@@ -128,12 +132,13 @@ export function usePortfolio(assets: AssetInput[]) {
   }), [assets, ccl, prices]);
 
   const totals = useMemo(() => {
-    const validPositions = positions.filter((position) => isValidAsset(position));
+    const validPositions = positions.filter((p) => isValidAsset(p));
     return {
-      totalUsd: roundMoney(safeSum(validPositions.map((position) => position.marketValueUsd))) ?? 0,
-      totalArs: roundMoney(safeSum(validPositions.map((position) => position.marketValueArs))) ?? 0,
+      totalUsd: roundMoney(safeSum(validPositions.map((p) => p.marketValueUsd))) ?? 0,
+      totalArs: roundMoney(safeSum(validPositions.map((p) => p.marketValueArs))) ?? 0,
     };
   }, [positions]);
-
+ 
   return { positions, totals };
 }
+ 
