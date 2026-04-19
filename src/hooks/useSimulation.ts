@@ -174,10 +174,10 @@ export function useSimulation(
     const expenseReduction = clamp((input.expenseReductionPercent ?? 0) / 100, 0, 1);
     const optimizedSavings = Math.max(0, baselineSavings + (monthlyExpenses * expenseReduction));
 
-    const inferredFx = dashboard.netWorth.usd > 0
-      ? dashboard.netWorth.ars / dashboard.netWorth.usd
-      : null;
-    const fxRate = inferredFx ?? ccl ?? 1;
+    const fxRate = ccl ?? 1;
+    if (!ccl) {
+      console.warn('[simulation:fx-fallback]', { reason: 'missing_ccl', fallback: 1 });
+    }
 
     const baseScenario = runScenario({
       months,

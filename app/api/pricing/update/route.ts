@@ -28,7 +28,6 @@ async function isAuthorized(request: NextRequest) {
   console.warn('[pricing.update] unauthorized request', {
     hasAuthorizationHeader: Boolean(auth),
     hasExpectedCronSecret: Boolean(expected),
-    cookieNames: request.cookies.getAll().map((cookie) => cookie.name),
   });
 
   return false;

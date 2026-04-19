@@ -127,9 +127,22 @@ export function usePrices(assets: AssetForPricing[]) {
     Record<string, { price: number | null; ts: number }>
   >({});
   const isFetchingRef = useRef(false);
- 
+  const pricingAssets = useMemo(
+    () => assets.map((asset) => ({
+      id: asset.id,
+      symbol: asset.symbol,
+      assetType: asset.assetType,
+      purchasePrice: asset.purchasePrice,
+    })),
+    [assets],
+  );
+  const pricingAssetsKey = useMemo(
+    () => pricingAssets.map((asset) => `${asset.id}:${normalizeSymbol(asset.symbol)}:${asset.assetType}`).join('|'),
+    [pricingAssets],
+  );
+
   useEffect(() => {
-    if (!assets || assets.length === 0) {
+    if (!pricingAssets || pricingAssets.length === 0) {
       setPrices({});
       return;
     }
@@ -145,16 +158,12 @@ export function usePrices(assets: AssetForPricing[]) {
       const now = Date.now();
  
       try {
-        for (let i = 0; i < assets.length; i += BATCH_SIZE) {
-          const batch = assets.slice(i, i + BATCH_SIZE);
- 
-          // Batch-fetch all crypto in this slice
-          const cryptoAssets = batch.filter((a) => a.assetType === 'CRYPTO');
-          const cryptoPricesBySymbol =
-            cryptoAssets.length > 0
-              ? await fetchCryptoBatchPricesUsd(cryptoAssets.map((a) => a.symbol))
-              : {};
- 
+        for (let i = 0; i < pricingAssets.length; i += BATCH_SIZE) {
+          const batch = pricingAssets.slice(i, i + BATCH_SIZE);
+
+          const cryptoAssets = batch.filter((asset) => asset.assetType === 'CRYPTO');
+          const cryptoPricesBySymbol = await fetchCryptoBatchPricesUsd(cryptoAssets.map((asset) => asset.symbol));
+
           await Promise.all(
             batch.map(async (asset) => {
               try {
@@ -171,7 +180,7 @@ export function usePrices(assets: AssetForPricing[]) {
                     price = cryptoPricesBySymbol[normalizedCryptoBase] ?? null;
                   }
 
-                  if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR') {
+                  if (asset.assetType === 'STOCK' || asset.assetType === 'CEDEAR' || asset.assetType === 'ETF') {
                     price = await fetchStockPriceUsd(normalizedSymbol);
                   }
 
@@ -234,9 +243,8 @@ export function usePrices(assets: AssetForPricing[]) {
       isMounted = false;
       if (intervalId !== null) window.clearInterval(intervalId);
     };
-    // ── FIX: depend on the stable memoized key, not JSON.stringify(assets) ──
-  }, [assetKey]); // eslint-disable-line react-hooks/exhaustive-deps
- 
+  }, [pricingAssets, pricingAssetsKey]);
+
   return prices;
 }
  

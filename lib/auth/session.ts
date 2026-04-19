@@ -61,14 +61,8 @@ export async function destroySession() {
  
 export async function getAuthSession() {
   const cookieStore = cookies();
- 
-  // ── FIX: removed console.log('cookies:', cookieStore.getAll()) — that
-  // printed the raw session token to Vercel logs on every authenticated request,
-  // leaking credentials to anyone with log access.
-  // Debug logging is only allowed in development, and never logs the token value.
- 
   const sessionToken = cookieStore.get(SESSION_COOKIE)?.value;
- 
+
   if (!sessionToken) {
     if (process.env.NODE_ENV === 'development') {
       console.info('[auth.session] no_cookie_present');
@@ -82,12 +76,10 @@ export async function getAuthSession() {
   });
  
   if (!dbSession) {
-    if (process.env.NODE_ENV === 'development') {
-      console.info('[auth.session] session_not_found_in_db');
-    }
+    console.info('[auth.session] session not found in database');
     return null;
   }
- 
+
   if (dbSession.expires < new Date()) {
     console.info('[auth.session] session_expired', { userId: dbSession.userId });
     return null;
